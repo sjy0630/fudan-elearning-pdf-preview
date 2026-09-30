@@ -14,6 +14,8 @@ Approved specification: `docs/superpowers/specs/2026-09-30-image-text-preview-de
 
 ## Task 1: Shared format contract
 
+Status: completed in `28c2203` and `5673be3`; spec and quality re-review passed. The quality review found exponential comment-regex backtracking, fixed with a forward scanner and timed adversarial regression. Fresh shared + existing focused suites passed 28/28; this is not browser/UI completion evidence.
+
 Files: create `shared/formats.js`, `tests/formats.test.cjs`; no UI changes.
 
 - [ ] Write failing tests and run `node --test tests/formats.test.cjs` before implementation. Tests load the shared script with Node require and use its `globalThis.CanvasFileFormats` API. Assert format lookup is absent before module exists, then test behavior: `identify('图.PNG').id === 'png'`, `identify('a.txt.exe') === null`, `identify('a.svg') === null`; every specified text suffix maps to `text`.
@@ -23,6 +25,8 @@ Files: create `shared/formats.js`, `tests/formats.test.cjs`; no UI changes.
 - [ ] Run new tests plus `node --test tests/extension.test.cjs tests/userscript.test.cjs tests/archive.test.cjs`; self-review; commit only shared source/test. Independent spec and quality review must pass before integration.
 
 ## Task 2: Extension routing and bounded reader
+
+Status: in progress. Version bump moves into this task, before its first build, to protect the existing 1.1.1 archives.
 
 Files: modify `extension/catalog.js`, `core.js`, `content.js`, `background.js`, `reader.mjs`, `scripts/build.mjs`; add tests to `tests/extension.test.cjs` and `tests/localization.test.cjs`.
 
