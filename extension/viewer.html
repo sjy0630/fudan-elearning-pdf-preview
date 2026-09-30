@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>eLearning PDF 预览</title>
+  <link rel="stylesheet" href="vendor/pdf_viewer.css"><link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand"><span class="badge">PDF</span><h1 id="title">eLearning PDF 预览</h1></div>
+    <nav id="controls" class="controls" aria-label="PDF 阅读控制">
+      <button id="previous" title="上一页" disabled>上一页</button>
+      <label class="page-label"><span class="sr-only">页码</span><input id="page" type="number" value="1" min="1" disabled></label>
+      <span id="page-count">/ —</span>
+      <button id="next" title="下一页" disabled>下一页</button>
+      <span class="divider"></span>
+      <button id="zoom-out" aria-label="缩小" disabled>−</button><span id="zoom-label">100%</span>
+      <button id="zoom-in" aria-label="放大" disabled>+</button><button id="fit" disabled>适合宽度</button>
+    </nav>
+    <div class="actions"><a id="download" class="button primary" hidden>下载 PDF</a><a id="original" class="button" target="_blank" rel="noopener noreferrer" hidden>打开原文件</a><a class="help" href="help.html" target="_blank" rel="noopener" aria-label="使用帮助">?</a></div>
+  </header>
+  <aside id="demo-note" hidden>这是随扩展安装的演示文件，无需登录或联网。试试翻页、缩放和选择文字；阅读课程文件时，再回到 eLearning 点击 PDF 文件名。</aside>
+  <main id="workspace">
+    <section id="status" class="status" aria-live="polite">
+      <h2 id="status-title">正在读取 PDF…</h2><p id="status-detail">文件只在你的浏览器中处理。</p>
+      <div class="status-actions"><button id="grant" hidden>允许读取文件服务器</button><button id="retry" hidden>重试</button></div>
+    </section>
+    <div id="paper" hidden><canvas id="canvas" aria-label="PDF 页面"></canvas><div id="text-layer" class="textLayer"></div></div>
+  </main>
+  <footer>复旦 eLearning PDF 预览 · 非官方工具 · 文件不会上传到第三方服务</footer>
+  <script src="catalog.js"></script><script src="core.js"></script><script type="module" src="viewer.mjs"></script>
+</body>
+</html>

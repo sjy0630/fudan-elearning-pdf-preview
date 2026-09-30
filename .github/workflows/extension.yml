@@ -1,0 +1,104 @@
+name: Extension checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            browser: chromium
+            headed: '0'
+          - os: windows-latest
+            browser: msedge
+            headed: '1'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run check
+      - run: npm run build
+      - run: npm run verify:packages
+      - name: Install Chromium
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
+      - name: Check Windows Edge installation
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $edgePath = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
+          if (!(Test-Path $edgePath)) { throw 'Windows runner does not have Microsoft Edge installed' }
+          (Get-Item $edgePath).VersionInfo.ProductVersion
+      - name: Exercise installed extension
+        run: npm run test:browser
+        env:
+          BROWSER_CHANNEL: ${{ matrix.browser }}
+          HEADED: ${{ matrix.headed }}
+      - name: Save browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-evidence-${{ matrix.os }}
+          path: output/playwright/ci/
+          if-no-files-found: warn
+      - name: Save verified test packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-packages-${{ matrix.os }}
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+
+  reproducibility:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: extension-packages-*
+          path: packages
+      - name: Compare Linux and Windows packages
+        run: diff packages/extension-packages-ubuntu-latest/SHA256SUMS.txt packages/extension-packages-windows-latest/SHA256SUMS.txt
+
+  firefox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm run verify:packages
+      - name: Exercise actual Firefox extension
+        run: npm run test:firefox
+        env:
+          SE_AVOID_STATS: 'true'
+      - name: Save Firefox evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-evidence-firefox
+          path: output/playwright/firefox/
+          if-no-files-found: warn

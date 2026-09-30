@@ -1,0 +1,22 @@
+{
+  "name": "fudan-elearning-pdf-preview",
+  "version": "1.1.0",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.cjs",
+    "check": "node --check extension/core.js && node --check extension/content.js && node --check extension/background.js && node --check extension/viewer.mjs && node --check scripts/smoke-extension.mjs",
+    "verify:packages": "node scripts/verify-packages.mjs",
+    "test:browser": "node scripts/smoke-extension.mjs",
+    "test:firefox": "node scripts/smoke-firefox.mjs"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.3.289"
+  },
+  "devDependencies": {
+    "fflate": "0.8.3",
+    "playwright": "1.63.0",
+    "selenium-webdriver": "4.49.0"
+  }
+}
