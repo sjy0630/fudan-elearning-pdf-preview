@@ -16,7 +16,7 @@ for (const browser of ['chromium', 'firefox']) {
   const bytes = await readFile(new URL(`dist/${name}`, root));
   assert.ok(sums.includes(`${createHash('sha256').update(bytes).digest('hex')}  ${name}`), 'Checksum mismatch');
   // Independently repackage to catch missing files, changed bytes and unstable metadata.
-  assert.deepEqual(bytes, Buffer.from(await archiveDirectory(fileURLToPath(new URL(`dist/${browser}/`, root)))));
+  assert.ok(bytes.equals(Buffer.from(await archiveDirectory(fileURLToPath(new URL(`dist/${browser}/`, root))))), `${browser}: live build directory differs from archive (check for conflict copies)`);
   const files = unzipSync(bytes);
   const manifest = JSON.parse(Buffer.from(files['manifest.json']).toString());
   assert.equal(manifest.manifest_version, 3);

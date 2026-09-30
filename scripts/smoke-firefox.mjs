@@ -7,6 +7,7 @@ import { Builder, By } from 'selenium-webdriver';
 import firefox from 'selenium-webdriver/firefox.js';
 import { createDemoPdf } from './demo-pdf.mjs';
 import { createDemoImage, createDemoText } from './demo-files.mjs';
+import { runFileBrowserChecks } from './file-browser-checks.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.join(root, 'output/playwright/firefox');
@@ -15,6 +16,7 @@ const downloads = await mkdtemp(path.join(tmpdir(), 'canvas-firefox-downloads-')
 const pkg = JSON.parse(await readFile(path.join(root, 'package.json')));
 const report = { platform: process.platform, started: new Date().toISOString(), checks: [], passed: false };
 const requests = [], unexpected = [], interceptErrors = [];
+const fileFixtures = new Map();
 const pdf = createDemoPdf();
 let driver, phase = 'launch', base;
 process.env.SE_AVOID_STATS = 'true';
@@ -82,7 +84,8 @@ try {
     requests.push(request.url);
     const url = new URL(request.url);
     let body, statusCode = 200, type = 'text/html; charset=utf-8', headers = [];
-    if (url.origin === 'https://elearning.fudan.edu.cn' && url.pathname === '/courses/123/assignments/456') {
+    if (fileFixtures.has(url.href)) { const fixture = fileFixtures.get(url.href); body = fixture.body; type = fixture.contentType; }
+    else if (url.origin === 'https://elearning.fudan.edu.cn' && url.pathname === '/courses/123/assignments/456') {
       body = '<!doctype html><html lang="zh"><head><title>模拟课程</title><link rel="icon" href="data:,"></head><body>' +
         '<h1>模拟课程（不包含真实资料）</h1><a id="pdf" href="/courses/123/files/456?wrap=1">演示文件.pdf</a>' +
         '<a id="download" class="download" href="/courses/123/files/456/download" download>Download 演示文件.pdf</a>' +
@@ -220,6 +223,7 @@ try {
       await driver.wait(async () => { try { return (await readFile(path.join(downloads,name))).equals(bytes); } catch { return false; } }, 30000);
     }
   });
+  await runFileBrowserChecks({ evaluate, goto: url => driver.get(url), click, wait: fn => driver.wait(() => evaluate(fn),30000), fixtures:fileFixtures, check, base, screenshot });
   assert.deepEqual(unexpected, []);
   assert.deepEqual(interceptErrors, []);
   report.windows = [];

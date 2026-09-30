@@ -22,13 +22,20 @@ function controls() {
   $('encoding').disabled = !bytes || format !== 'text';
   $('copy').disabled = $('wrap').disabled = !textReady;
 }
-function cleanup() {
-  generation++; controller?.abort();
+function clearDownload() {
   if (objectUrl) URL.revokeObjectURL(objectUrl);
-  objectUrl = null; image = null; bytes = null; textReady = false; pendingScope = null;
+  objectUrl = null; $('download').hidden = true; $('download').removeAttribute('href');
+}
+function prepareDownload() {
+  if (!objectUrl) objectUrl = URL.createObjectURL(new Blob([bytes], { type: descriptor.mime }));
+  $('download').href = objectUrl; $('download').download = name; $('download').hidden = false;
+}
+function cleanup() {
+  generation++; controller?.abort(); clearDownload();
+  image = null; bytes = null; textReady = false; pendingScope = null;
   $('image-frame').replaceChildren(); $('image-frame').hidden = true;
   $('text').textContent = ''; $('text').hidden = true; $('copy-status').textContent = '';
-  $('download').hidden = true; $('download').removeAttribute('href'); $('grant').hidden = true;
+  $('grant').hidden = true;
   controls();
 }
 function layout() {
@@ -42,8 +49,9 @@ function layout() {
   $('zoom-label').textContent = `${Math.round(scale * 100)}%`;
 }
 function renderText() {
+  clearDownload();
   textReady = false; $('text').hidden = true; $('text').textContent = ''; $('copy-status').textContent = '';
-  try { $('text').textContent = CanvasFileFormats.decodeText(bytes, $('encoding').value); textReady = true; $('text').hidden = false; $('status').hidden = true; }
+  try { $('text').textContent = CanvasFileFormats.decodeText(bytes, $('encoding').value); prepareDownload(); textReady = true; $('text').hidden = false; $('status').hidden = true; }
   catch (error) { status('暂时无法预览', error.message, true); }
   controls();
 }
@@ -60,11 +68,10 @@ async function load() {
     } else result = await readFile(source, { api, format, signal });
     if (token !== generation) return;
     dimensions = CanvasFileFormats.validate(result.bytes, format, result.mime); bytes = result.bytes;
-    objectUrl = URL.createObjectURL(new Blob([bytes], { type: descriptor.mime }));
-    $('download').href = objectUrl; $('download').download = name; $('download').hidden = false;
     if (format === 'text') { renderText(); return; }
+    prepareDownload();
     const candidate = new Image(); candidate.id = 'image'; candidate.alt = name; candidate.src = objectUrl;
-    try { await candidate.decode(); } catch { throw Error('图像内容损坏，浏览器无法解码。可以下载原文件检查。'); }
+    try { await candidate.decode(); } catch { throw Error('图像内容损坏，浏览器无法解码。可以打开原文件检查。'); }
     if (token !== generation) return;
     // EXIF orientation can swap width and height; use the decoder's bounded dimensions.
     const width = candidate.naturalWidth, height = candidate.naturalHeight;
@@ -73,6 +80,7 @@ async function load() {
     $('image-frame').replaceChildren(image); $('image-frame').hidden = false; layout(); controls(); $('status').hidden = true;
   } catch (error) {
     if (token !== generation || signal.aborted) return;
+    if (format !== 'text') { clearDownload(); bytes = null; image = null; }
     if (error instanceof HostPermissionError) { pendingScope = error.scope; $('grant').hidden = false; status('需要允许读取文件服务器', `${new URL(error.scope).hostname}\n点击下方按钮，仅允许此服务器。也可以打开原文件。`); }
     else status('暂时无法预览', error.message || '文件无法读取，请登录 eLearning 后重试。', true);
     controls();

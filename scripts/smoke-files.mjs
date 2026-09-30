@@ -62,7 +62,12 @@ try {
   await check('GB18030 recovery retains raw bytes; UTF16 BOM automatic decoding', async () => {
     await open('text', Buffer.from([0xd6, 0xd0, 0xce, 0xc4]), 'text/plain'); await failed();
     assert.equal(await page.locator('#encoding').isEnabled(), true);
+    assert.equal(await page.locator('#download').isVisible(), false, 'failed text decoding must not retain download URL');
     await page.locator('#encoding').selectOption('gb18030'); await ready(); assert.equal(await page.locator('#text').textContent(), '中文');
+    await page.locator('#encoding').selectOption('utf-8'); await failed();
+    assert.equal(await page.locator('#download').isVisible(), false);
+    assert.equal(await page.evaluate(() => window.revokedUrls.length), 1);
+    await page.locator('#encoding').selectOption('gb18030'); await ready();
     await open('text', Buffer.from([255,254,0x2d,0x4e,0x87,0x65]), 'text/plain'); await ready(); assert.equal(await page.locator('#text').textContent(), '中文');
   });
   const images = await page.evaluate(() => {
@@ -85,6 +90,8 @@ try {
   await check('corrupt image body fails full decode and oversize headers fail validation', async () => {
     const png = Buffer.from(images[0][1], 'base64');
     await open('png', png.subarray(0,33), 'image/png'); await failed(); assert.equal(await page.locator('#rotate').isDisabled(), true);
+    assert.equal(await page.locator('#download').isVisible(), false, 'image decode failure must clear URL');
+    assert.equal(await page.evaluate(() => window.revokedUrls.length), 1);
     const huge = Buffer.from(png); huge.writeUInt32BE(20000,16);
     await open('png', huge, 'image/png'); await failed(); assert.match(await page.locator('#status-detail').textContent(), /尺寸/);
   });

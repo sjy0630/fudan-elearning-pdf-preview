@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from 'playwright';
 import { createDemoPdf } from './demo-pdf.mjs';
 import { createDemoImage, createDemoText } from './demo-files.mjs';
+import { runFileBrowserChecks } from './file-browser-checks.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.join(root, process.env.BROWSER_CHANNEL === 'msedge' ? 'output/playwright/edge' : 'output/playwright/ci');
@@ -17,6 +18,7 @@ const channel = process.env.BROWSER_CHANNEL || 'chromium';
 const executablePath = process.env.BROWSER_EXECUTABLE || undefined;
 const report = { platform: process.platform, channel, started: new Date().toISOString(), checks: [], passed: false };
 const downloads = [], pageErrors = [], unexpectedRequests = [];
+const fileFixtures = new Map();
 let context;
 let phase = 'launch';
 async function check(name, action) {
@@ -49,6 +51,7 @@ try {
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (!/^https?:$/.test(url.protocol)) return route.continue();
+    if (fileFixtures.has(url.href)) return route.fulfill(fileFixtures.get(url.href));
     if (url.origin === 'https://elearning.fudan.edu.cn') {
       if (/\/files\/\d+\/download$/.test(url.pathname)) {
         if (url.pathname.includes('/501/')) return route.fulfill({ contentType: 'image/png', body: createDemoImage() });
@@ -205,6 +208,9 @@ try {
     await invalid.waitForFunction(() => document.querySelector('#status-title')?.textContent === '请从 eLearning 打开 PDF');
     assert.equal(await invalid.locator('#download').isVisible(), false);
   });
+  const acceptance = await context.newPage();
+  await acceptance.goto(`${base}help.html`);
+  await runFileBrowserChecks({ evaluate: (fn,...args) => acceptance.evaluate(fn,...args), goto: url => acceptance.goto(url), click: selector => acceptance.locator(selector).click(), wait: fn => acceptance.waitForFunction(fn), fixtures: fileFixtures, check, base, screenshot: name => acceptance.screenshot({ path:path.join(output,name) }) });
   assert.deepEqual(unexpectedRequests, []);
   assert.deepEqual(pageErrors, []);
   report.passed = true;
