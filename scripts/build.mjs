@@ -5,6 +5,7 @@ import { deflateSync } from 'node:zlib';
 import vm from 'node:vm';
 import { createHash } from 'node:crypto';
 import { createDemoPdf } from './demo-pdf.mjs';
+import { createDemoImage, createDemoText } from './demo-files.mjs';
 import { archiveDirectory } from './archive.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -50,6 +51,8 @@ for (const browser of ['chromium', 'firefox']) {
   await cp(path.join(root, 'extension'), output, { recursive: true });
   await cp(path.join(root, 'shared/formats.js'), path.join(output, 'formats.js'));
   await writeFile(path.join(output, 'demo.pdf'), createDemoPdf());
+  await writeFile(path.join(output, 'demo.png'), createDemoImage());
+  await writeFile(path.join(output, 'demo.txt'), createDemoText());
   await mkdir(path.join(output, 'vendor'), { recursive: true });
   for (const file of ['pdf.mjs', 'pdf.worker.mjs']) await cp(path.join(vendor, 'legacy/build', file), path.join(output, 'vendor', file));
   await cp(path.join(vendor, 'web/pdf_viewer.css'), path.join(output, 'vendor/pdf_viewer.css'));

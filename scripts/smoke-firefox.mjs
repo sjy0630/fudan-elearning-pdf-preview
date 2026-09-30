@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Builder, By } from 'selenium-webdriver';
 import firefox from 'selenium-webdriver/firefox.js';
 import { createDemoPdf } from './demo-pdf.mjs';
+import { createDemoImage, createDemoText } from './demo-files.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.join(root, 'output/playwright/firefox');
@@ -36,7 +37,7 @@ async function openedByClick(selector) {
     for (const id of await driver.getAllWindowHandles()) {
       if (before.includes(id)) continue;
       await driver.switchTo().window(id);
-      if ((await driver.getCurrentUrl()).startsWith(`${base}viewer.html?`)) return id;
+      if ((await driver.getCurrentUrl()).startsWith(`${base}viewer.html?`) || (await driver.getCurrentUrl()).startsWith(`${base}file-viewer.html?`)) return id;
     }
     return false;
   }, 30000);
@@ -55,7 +56,7 @@ try {
     'network.proxy.ssl': '127.0.0.1', 'network.proxy.ssl_port': 9, 'network.proxy.no_proxies_on': '',
     'browser.download.folderList': 2, 'browser.download.dir': downloads,
     'browser.download.useDownloadDir': true, 'browser.download.alwaysOpenPanel': false,
-    'browser.helperApps.neverAsk.saveToDisk': 'application/pdf',
+    'browser.helperApps.neverAsk.saveToDisk': 'application/pdf,image/png,text/plain',
     'datareporting.healthreport.uploadEnabled': false, 'datareporting.policy.dataSubmissionEnabled': false,
     'toolkit.telemetry.enabled': false,
   })) options.setPreference(key, value);
@@ -85,9 +86,12 @@ try {
       body = '<!doctype html><html lang="zh"><head><title>模拟课程</title><link rel="icon" href="data:,"></head><body>' +
         '<h1>模拟课程（不包含真实资料）</h1><a id="pdf" href="/courses/123/files/456?wrap=1">演示文件.pdf</a>' +
         '<a id="download" class="download" href="/courses/123/files/456/download" download>Download 演示文件.pdf</a>' +
-        '<a id="denied" href="/courses/123/files/789?wrap=1">权限失效示例.pdf</a></body></html>';
+        '<a id="denied" href="/courses/123/files/789?wrap=1">权限失效示例.pdf</a>' +
+        '<a id="image-file" href="/courses/123/files/501?wrap=1">演示图像.png</a><a id="text-file" href="/courses/123/files/502?wrap=1">演示文本.txt</a></body></html>';
     } else if (url.origin === 'https://elearning.fudan.edu.cn' && /\/files\/\d+\/download$/.test(url.pathname)) {
-      if (url.pathname.includes('/789/')) { statusCode = 403; body = 'Forbidden'; }
+      if (url.pathname.includes('/501/')) { body = createDemoImage(); type = 'image/png'; }
+      else if (url.pathname.includes('/502/')) { body = createDemoText(); type = 'text/plain'; }
+      else if (url.pathname.includes('/789/')) { statusCode = 403; body = 'Forbidden'; }
       else if (url.pathname.includes('/999/')) {
         statusCode = 302; body = ''; headers.push({ name: 'location', value: { type: 'string', value: 'https://files.example.test/demo.pdf' } });
       } else { body = pdf; type = 'application/pdf'; }
@@ -193,6 +197,28 @@ try {
   await check('untrusted source is rejected without external fetch', async () => {
     await driver.get(`${base}viewer.html?source=https://example.invalid/private.pdf`);
     await driver.wait(() => evaluate(() => document.querySelector('#status-title')?.textContent === '请从 eLearning 打开 PDF'), 30000);
+  });
+  await check('bundled image/text demos ignore remote overrides and make no requests', async () => {
+    const before = requests.length;
+    for (const demo of ['image','text']) {
+      await driver.get(`${base}file-viewer.html?demo=${demo}&source=https://example.invalid/nope`);
+      await driver.wait(() => evaluate(() => document.querySelector('#status')?.hidden), 30000);
+      assert.equal(await evaluate(() => document.querySelector('#original').hidden), true);
+      await screenshot(`offline-${demo}.png`);
+    }
+    assert.equal(requests.length, before);
+  });
+  await check('Canvas image/text clicks open installed viewer and preserve raw downloads', async () => {
+    for (const [selector,name,bytes] of [['#image-file','演示图像.png',createDemoImage()],['#text-file','演示文本.txt',createDemoText()]]) {
+      await driver.switchTo().window(course); await openedByClick(selector);
+      await driver.wait(() => evaluate(() => document.querySelector('#status')?.hidden), 30000);
+      assert.ok((await driver.getCurrentUrl()).startsWith(`${base}file-viewer.html?`));
+      if (selector === '#image-file') { await click('#rotate'); assert.equal(await evaluate(() => document.querySelector('#image').dataset.rotation), '90'); await click('#fit'); }
+      else assert.equal(await evaluate(() => document.querySelector('#text').textContent), bytes.toString());
+      await screenshot(selector === '#image-file' ? 'course-image.png' : 'course-text.png');
+      await click('#download');
+      await driver.wait(async () => { try { return (await readFile(path.join(downloads,name))).equals(bytes); } catch { return false; } }, 30000);
+    }
   });
   assert.deepEqual(unexpected, []);
   assert.deepEqual(interceptErrors, []);

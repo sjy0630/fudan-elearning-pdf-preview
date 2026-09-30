@@ -6,9 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from 'playwright';
 import { createDemoPdf } from './demo-pdf.mjs';
+import { createDemoImage, createDemoText } from './demo-files.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const output = path.join(root, 'output/playwright/ci');
+const output = path.join(root, process.env.BROWSER_CHANNEL === 'msedge' ? 'output/playwright/edge' : 'output/playwright/ci');
 await mkdir(output, { recursive: true });
 const profile = await mkdtemp(path.join(tmpdir(), 'canvas-preview-smoke-'));
 const extension = path.join(root, 'dist/chromium');
@@ -50,6 +51,8 @@ try {
     if (!/^https?:$/.test(url.protocol)) return route.continue();
     if (url.origin === 'https://elearning.fudan.edu.cn') {
       if (/\/files\/\d+\/download$/.test(url.pathname)) {
+        if (url.pathname.includes('/501/')) return route.fulfill({ contentType: 'image/png', body: createDemoImage() });
+        if (url.pathname.includes('/502/')) return route.fulfill({ contentType: 'text/plain', body: createDemoText() });
         if (url.pathname.includes('/789/')) return route.fulfill({ status: 403, body: 'Forbidden' });
         if (url.pathname.includes('/999/')) return route.fulfill({ status: 302, headers: { location: 'https://files.example.test/demo.pdf' } });
         return route.fulfill({ contentType: 'application/pdf', body: pdf });
@@ -58,7 +61,8 @@ try {
         '<!doctype html><html lang="zh"><head><title>模拟课程</title></head><body><h1>模拟课程（不包含真实资料）</h1>' +
         '<a href="/courses/123/files/456?wrap=1">演示文件.pdf</a>' +
         '<a class="download" href="/courses/123/files/456/download" download>Download 演示文件.pdf</a>' +
-        '<a href="/courses/123/files/789?wrap=1">权限失效示例.pdf</a></body></html>' });
+        '<a href="/courses/123/files/789?wrap=1">权限失效示例.pdf</a>' +
+        '<a href="/courses/123/files/501?wrap=1">演示图像.png</a><a href="/courses/123/files/502?wrap=1">演示文本.txt</a></body></html>' });
     }
     if (url.href === 'https://files.example.test/demo.pdf') return route.fulfill({ contentType: 'application/pdf', body: pdf });
     unexpectedRequests.push(url.href);
@@ -104,6 +108,33 @@ try {
 
   const course = await context.newPage();
   await course.goto('https://elearning.fudan.edu.cn/courses/123/assignments/456');
+  await check('bundled image/text demos run offline and ignore arbitrary source', async () => {
+    await context.setOffline(true);
+    try {
+      for (const demo of ['image','text']) {
+        const local = await context.newPage();
+        await local.goto(`${base}file-viewer.html?demo=${demo}&source=https://example.invalid/nope&original=javascript:alert(1)`);
+        await local.waitForFunction(() => document.querySelector('#status')?.hidden);
+        assert.equal(await local.locator('#original').isVisible(), false);
+        await local.screenshot({ path: path.join(output, `offline-${demo}.png`) });
+        await local.close();
+      }
+    } finally { await context.setOffline(false); }
+  });
+  await check('Canvas image/text clicks open installed extension with working controls and raw download', async () => {
+    for (const [name, format, bytes] of [['演示图像.png','png',createDemoImage()],['演示文本.txt','text',createDemoText()]]) {
+      const pending = context.waitForEvent('page'); await course.getByRole('link', { name, exact: true }).click();
+      const file = await pending; await file.waitForFunction(() => document.querySelector('#status')?.hidden);
+      assert.ok(file.url().startsWith(`${base}file-viewer.html?`)); assert.equal(new URL(file.url()).searchParams.get('format'), format);
+      if (format === 'png') { await file.locator('#rotate').click(); assert.equal(await file.locator('#image').getAttribute('data-rotation'),'90'); await file.locator('#fit').click(); }
+      else assert.equal(await file.locator('#text').textContent(), bytes.toString());
+      const saved = file.waitForEvent('download'); await file.locator('#download').click(); const download = await saved;
+      const chunks = []; for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+      assert.deepEqual(Buffer.concat(chunks), bytes); assert.equal(download.suggestedFilename(), name);
+      await file.screenshot({ path: path.join(output, `course-${format}.png`) }); await file.close();
+    }
+    downloads.length = 0;
+  });
   let viewer;
   await check('ordinary PDF click opens extension reader and renders text', async () => {
     const opened = context.waitForEvent('page');

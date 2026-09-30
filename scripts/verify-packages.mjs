@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { unzipSync } from 'fflate';
 import { archiveDirectory } from './archive.mjs';
 import { createDemoPdf } from './demo-pdf.mjs';
+import { createDemoImage, createDemoText } from './demo-files.mjs';
 
 const root = new URL('../', import.meta.url);
 const pkg = JSON.parse(await readFile(new URL('package.json', root)));
@@ -41,6 +42,7 @@ for (const browser of ['chromium', 'firefox']) {
   assert.deepEqual(manifest.optional_host_permissions, ['https://*/*']);
   assert.ok(!manifest.content_security_policy.extension_pages.includes("'unsafe-eval'"));
   const resources = ['viewer.html', 'viewer.mjs', 'viewer.css', 'reader.mjs', 'help.html', 'help.css',
+    'file-viewer.html', 'file-viewer.mjs', 'file-viewer.css', 'demo.png', 'demo.txt',
     'popup.html', 'demo.pdf', 'LICENSE.txt', 'vendor/PDFJS-LICENSE.txt', 'vendor/pdf.mjs',
     'vendor/pdf.worker.mjs', 'vendor/pdf_viewer.css', ...Object.values(manifest.icons),
     ...manifest.content_scripts.flatMap((script) => script.js),
@@ -50,6 +52,10 @@ for (const browser of ['chromium', 'firefox']) {
     assert.ok(Object.keys(files).some((name) => name.startsWith(`vendor/${directory}/`)));
   }
   assert.deepEqual(Buffer.from(files['demo.pdf']), createDemoPdf());
+  assert.deepEqual(Buffer.from(files['demo.png']), createDemoImage());
+  assert.deepEqual(Buffer.from(files['demo.txt']), createDemoText());
+  for (const resource of ['file-viewer.html','file-viewer.mjs','file-viewer.css','reader.mjs','help.html','core.js','catalog.js','content.js','background.js']) assert.deepEqual(Buffer.from(files[resource]), await readFile(new URL(`extension/${resource}`, root)), `${resource}: source bytes differ`);
+  assert.deepEqual(Buffer.from(files['formats.js']), await readFile(new URL('shared/formats.js', root)));
   for (const name of Object.keys(files)) {
     assert.ok(!name.includes('\\') && !name.startsWith('/') && !name.split('/').includes('..'), name);
     assert.ok(!/quickjs-eval|node_modules|\.DS_Store/.test(name), name);

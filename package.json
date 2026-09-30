@@ -6,10 +6,11 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test tests/*.test.cjs",
-    "check": "node --check extension/core.js && node --check extension/content.js && node --check extension/background.js && node --check extension/viewer.mjs && node --check scripts/smoke-extension.mjs",
+    "check": "node --check extension/core.js && node --check extension/content.js && node --check extension/background.js && node --check extension/viewer.mjs && node --check extension/file-viewer.mjs && node --check scripts/smoke-extension.mjs && node --check scripts/smoke-files.mjs",
     "verify:packages": "node scripts/verify-packages.mjs",
     "test:browser": "node scripts/smoke-extension.mjs",
-    "test:firefox": "node scripts/smoke-firefox.mjs"
+    "test:firefox": "node scripts/smoke-firefox.mjs",
+    "test:files": "node scripts/smoke-files.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "6.3.289"
