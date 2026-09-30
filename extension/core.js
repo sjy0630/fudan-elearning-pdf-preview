@@ -58,9 +58,7 @@
     const id = file?.format || (legacy ? 'pdf' : null);
     if (!formats.get(id) || (legacy && id !== 'pdf') || !fileUrl(file?.source) ||
         !fileUrl(file?.original || (legacy ? file?.source : null))) return false;
-    if (legacy && (!file.name || !/\.[a-z0-9]+$/i.test(String(file.name).trim()))) {
-      return formats.identify(filename(file.name))?.id === 'pdf';
-    }
+    if (legacy) return formats.identify(filename(file.name))?.id === 'pdf';
     return formats.identify(file.name)?.id === id;
   }
   function permissionScope(value) {

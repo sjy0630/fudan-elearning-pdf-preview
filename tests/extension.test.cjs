@@ -46,6 +46,8 @@ test('generic messages require agreeing format and filename; legacy PDF remains 
   assert.equal(core.allowedMessage({ type: 'open-pdf', file }, sender, 'id'), false);
   assert.ok(core.allowedMessage({ type: 'open-pdf', file: { source } }, sender, 'id'));
   assert.ok(core.allowedMessage({ type: 'open-pdf', file: { source, name: 'lecture' } }, sender, 'id'));
+  assert.ok(core.allowedMessage({ type: 'open-pdf', file: { source, name: 'lecture.docx' } }, sender, 'id'));
+  assert.equal(core.filename('lecture.docx'), 'lecture.docx.pdf');
   assert.equal(core.allowedMessage({ type: 'open-file', file: { source, original: source, name: 'lecture', format: 'pdf' } }, sender, 'id'), false);
 });
 
