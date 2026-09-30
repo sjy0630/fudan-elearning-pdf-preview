@@ -131,7 +131,20 @@ globalThis.CanvasFileFormats = (() => {
     try { text = new TextDecoder(label, { fatal: true }).decode(b); }
     catch { throw new Error('文本编码无效，请尝试切换 UTF-8 或 GB18030 编码。'); }
     if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/.test(text)) throw new Error('文件包含二进制控制字符，无法作为文本预览。');
-    if (/^\s*(?:(?:<\?xml\b[^>]*\?>|<!--[\s\S]*?-->)\s*)*(?:<!doctype\s+html\b|<(?:html|head|body|form)\b)/i.test(text)) throw new Error('文件内容像登录网页，请重新登录后重试。');
+    // Move forward once through each prefix; a repeated lazy-comment regex can
+    // backtrack exponentially on ordinary text containing many comments.
+    let prefixEnd = 0;
+    while (prefixEnd < text.length) {
+      while (prefixEnd < text.length && /\s/.test(text[prefixEnd])) prefixEnd++;
+      let closing;
+      if (text.startsWith('<!--', prefixEnd)) closing = '-->';
+      else if (/^<\?xml\b/i.test(text.slice(prefixEnd, prefixEnd + 6))) closing = '?>';
+      else break;
+      const end = text.indexOf(closing, prefixEnd + (closing === '-->' ? 4 : 5));
+      if (end === -1) break;
+      prefixEnd = end + closing.length;
+    }
+    if (/^(?:<!doctype\s+html\b|<(?:html|head|body|form)\b)/i.test(text.slice(prefixEnd))) throw new Error('文件内容像登录网页，请重新登录后重试。');
     return text;
   }
   return Object.freeze({ identify, get, safeName, validate, decodeText });

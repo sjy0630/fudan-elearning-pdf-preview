@@ -86,3 +86,17 @@ test('rejects binary controls and likely login HTML but preserves literal script
  const f=api();for(const s of ['a\u0000b','a\u0001b','a\u007fb','a\u0085b','<!DOCTYPE html><html>login','  <html><body>login','<form action="login">','<head><title>login','<body>login'])assert.throws(()=>f.decodeText(bytes(s)));
  for(const s of ['<script>alert(1)</script>','a\tline\r\n','<root>XML</root>'])assert.equal(f.decodeText(bytes(s)),s);
 });
+test('decodes repeated benign comments within a bounded execution time',()=>{
+ const text='<!--x-->'.repeat(10000)+'plain text';
+ context.commentBytes=bytes(text);
+ assert.equal(vm.runInContext('CanvasFileFormats.decodeText(commentBytes)',context,{timeout:1000}),text);
+ delete context.commentBytes;
+});
+test('skips XML declarations and comments before checking for login HTML',()=>{
+ const f=api();
+ for(const prefix of ['<!--a--><!--b-->\n','<?xml version="1.0"?>\n',' <!--a--> <?xml version="1.0"?> <!--b--> ']) {
+  for(const html of ['<html>login','<form action="login">','<!DOCTYPE html>'])assert.throws(()=>f.decodeText(bytes(prefix+html)),/登录/);
+  assert.equal(f.decodeText(bytes(prefix+'plain text')),prefix+'plain text');
+ }
+ for(const text of ['<!-- unfinished <html>','<?xml unfinished <html>','<?xml-stylesheet href="x"?><root/>'])assert.equal(f.decodeText(bytes(text)),text);
+});
