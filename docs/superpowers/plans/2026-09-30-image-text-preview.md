@@ -38,7 +38,7 @@ Files: modify `extension/catalog.js`, `core.js`, `content.js`, `background.js`, 
 
 ## Task 3: Local image/text interface and demonstration
 
-Status: in progress.
+Status: completed in `c484289` and `e8361dc`; independent spec and quality re-review passed. 43 Node tests, actual installed Chromium 155 / Edge 154 / Firefox 156.0.1 each 20 browser checks, focused source UI 10 checks. Follow-up fixed failed-decode URL retention and expanded installed acceptance across formats/encodings/lifecycle. Generated-directory conflict copies caused verifier mismatch and oversized diagnostics (exit 137); strict byte comparison now has bounded diagnostics, verified with a failing synthetic mismatch then clean rebuild. Real school login integration remains untested in this iteration.
 
 Files: create `extension/file-viewer.html`, `file-viewer.mjs`, `file-viewer.css`; extend `scripts/demo.mjs` or create `scripts/demo-files.mjs`; modify build/help and browser smoke harnesses.
 
@@ -48,6 +48,8 @@ Files: create `extension/file-viewer.html`, `file-viewer.mjs`, `file-viewer.css`
 - [ ] Test all controls and error flows on isolated Chromium/Edge/Firefox, including literal script text not executing. Add generated local demos to help. Update candidate package and lock root version to 1.2.0 before first build so 1.1.1 ZIP stays intact. Update syntax and package verification coverage. Run builds serially before browser tests, commit and review.
 
 ## Task 4: Userscript build and parity
+
+Status: in progress. User-facing installable script remains single-file; source-generation tools are for maintainers only.
 
 Files: create `userscript/preview.template.js`, `scripts/build-userscript.mjs`; generate `elearning-pdf-preview.user.js`; expand `tests/userscript.test.cjs` and browser fixtures.
 
