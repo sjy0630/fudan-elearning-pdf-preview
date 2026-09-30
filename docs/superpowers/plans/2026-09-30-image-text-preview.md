@@ -26,7 +26,7 @@ Files: create `shared/formats.js`, `tests/formats.test.cjs`; no UI changes.
 
 ## Task 2: Extension routing and bounded reader
 
-Status: in progress. Version bump moves into this task, before its first build, to protect the existing 1.1.1 archives.
+Status: completed in `a6d1c2d`, `027292e`, `ecfd4c3`; spec and quality re-review passed. Legacy arbitrary PDF names and MIME-independent PDF signature checking were restored after review. 21 targeted extension tests pass. Version bumped before builds; old ZIP hashes retained. Non-PDF viewer still pending Task 3, so this is not a usable multi-format release yet.
 
 Files: modify `extension/catalog.js`, `core.js`, `content.js`, `background.js`, `reader.mjs`, `scripts/build.mjs`; add tests to `tests/extension.test.cjs` and `tests/localization.test.cjs`.
 
@@ -37,6 +37,8 @@ Files: modify `extension/catalog.js`, `core.js`, `content.js`, `background.js`, 
 - [ ] Shared validation checks data before rendering; PDF retains old behavior. Listener/timer cleanup executes on all paths, caller cancellation propagates. Run old and new tests, commit and obtain both reviews.
 
 ## Task 3: Local image/text interface and demonstration
+
+Status: in progress.
 
 Files: create `extension/file-viewer.html`, `file-viewer.mjs`, `file-viewer.css`; extend `scripts/demo.mjs` or create `scripts/demo-files.mjs`; modify build/help and browser smoke harnesses.
 
