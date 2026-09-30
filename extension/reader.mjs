@@ -75,8 +75,8 @@ async function readBounded(source, { api, format, fetchImpl = fetch, limit, time
     const mime = response.headers.get('content-type') || '';
     let validated;
     try {
-      // The original PDF API accepted servers returning the text/plain default.
-      validated = globalThis.CanvasFileFormats.validate(bytes, format, legacyPdf && /^text\/plain(?:;|$)/i.test(mime) ? '' : mime);
+      // The original PDF API relied on the signature, irrespective of server MIME.
+      validated = globalThis.CanvasFileFormats.validate(bytes, format, legacyPdf ? '' : mime);
     } catch (error) {
       if (legacyPdf) throw new Error('返回内容不是 PDF，可能是登录页面。请登录 eLearning 后重试。');
       throw error;

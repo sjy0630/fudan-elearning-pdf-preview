@@ -45,6 +45,8 @@ test('generic messages require agreeing format and filename; legacy PDF remains 
   }
   assert.equal(core.allowedMessage({ type: 'open-pdf', file }, sender, 'id'), false);
   assert.ok(core.allowedMessage({ type: 'open-pdf', file: { source } }, sender, 'id'));
+  assert.ok(core.allowedMessage({ type: 'open-pdf', file: { source, name: 'lecture' } }, sender, 'id'));
+  assert.equal(core.allowedMessage({ type: 'open-file', file: { source, original: source, name: 'lecture', format: 'pdf' } }, sender, 'id'), false);
 });
 
 test('builds a school download URL and preserves the file verifier', () => {
@@ -153,6 +155,16 @@ test('retrieves PDF bytes with credentials and cleans up request observers', asy
   } });
   assert.equal(new TextDecoder().decode(bytes), '%PDF-1.7\ntest');
   assert.equal(api.listening, false);
+});
+
+test('legacy PDF reading remains signature based regardless of server MIME', async () => {
+  const { readPdf, readFile } = await readerModule;
+  for (const mime of ['application/x-pdf', 'application/download', 'image/png', 'text/html']) {
+    const fetchImpl = async () => new Response('%PDF-1.7\nlegacy', { headers: { 'content-type': mime } });
+    assert.equal(new TextDecoder().decode(await readPdf(source, { api: fakeApi(), fetchImpl })), '%PDF-1.7\nlegacy');
+    await assert.rejects(readFile(source, { api: fakeApi(), format: 'pdf', fetchImpl }), /类型|网页/);
+  }
+  await assert.rejects(readPdf(source, { api: fakeApi(), fetchImpl: async () => new Response('not PDF', { headers: { 'content-type': 'application/x-pdf' } }) }), /不是 PDF/);
 });
 
 test('a blocked redirect asks only for the actual destination host', async () => {
