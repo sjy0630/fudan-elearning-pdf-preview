@@ -5,12 +5,22 @@ const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 
+test('shared formats load before consumers in source entry points', () => {
+  const build = readFileSync(path.join(root, 'scripts/build.mjs'), 'utf8');
+  assert.match(build, /'formats.js', 'catalog.js', 'core.js'/);
+  assert.match(readFileSync(path.join(root, 'extension/background.js'), 'utf8'), /importScripts\('formats.js', 'catalog.js', 'core.js'\)/);
+  assert.match(readFileSync(path.join(root, 'extension/viewer.html'), 'utf8'), /src="formats.js".*src="catalog.js"/);
+});
+
 // Test the real build once, rather than a duplicate manifest factory.
 execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: root });
 for (const browser of ['chromium', 'firefox']) {
   test(`${browser} localizes manifest metadata and preserves catalog bytes`, () => {
     const output = path.join(root, 'dist', browser);
     const manifest = JSON.parse(readFileSync(path.join(output, 'manifest.json')));
+    assert.deepEqual(readFileSync(path.join(output, 'formats.js')), readFileSync(path.join(root, 'shared/formats.js')));
+    assert.deepEqual(manifest.content_scripts[0].js.slice(0, 3), ['formats.js', 'catalog.js', 'core.js']);
+    if (browser === 'firefox') assert.deepEqual(manifest.background.scripts.slice(0, 3), ['formats.js', 'catalog.js', 'core.js']);
     assert.equal(manifest.default_locale, 'zh_CN');
     assert.equal(manifest.name, '__MSG_extensionName__');
     assert.equal(manifest.description, '__MSG_extensionDescription__');

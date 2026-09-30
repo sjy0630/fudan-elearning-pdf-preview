@@ -12,6 +12,7 @@ const pkg = JSON.parse(await readFile(path.join(root, 'package.json')));
 const vendor = path.join(root, 'node_modules/pdfjs-dist');
 const dist = path.join(root, 'dist');
 const catalogContext = {};
+vm.runInNewContext(await readFile(path.join(root, 'shared/formats.js'), 'utf8'), catalogContext);
 vm.runInNewContext(await readFile(path.join(root, 'extension/catalog.js'), 'utf8'), catalogContext);
 const sites = Array.from(catalogContext.CanvasPreviewCatalog.platforms, (platform) => `${platform.origin}/*`);
 await mkdir(dist, { recursive: true });
@@ -47,6 +48,7 @@ for (const browser of ['chromium', 'firefox']) {
   const output = path.join(dist, browser);
   await rm(output, { recursive: true, force: true });
   await cp(path.join(root, 'extension'), output, { recursive: true });
+  await cp(path.join(root, 'shared/formats.js'), path.join(output, 'formats.js'));
   await writeFile(path.join(output, 'demo.pdf'), createDemoPdf());
   await mkdir(path.join(output, 'vendor'), { recursive: true });
   for (const file of ['pdf.mjs', 'pdf.worker.mjs']) await cp(path.join(vendor, 'legacy/build', file), path.join(output, 'vendor', file));
@@ -71,11 +73,11 @@ for (const browser of ['chromium', 'firefox']) {
     permissions: ['webRequest'],
     host_permissions: sites,
     optional_host_permissions: ['https://*/*'],
-    content_scripts: [{ matches: sites, js: ['catalog.js', 'core.js', 'content.js'], run_at: 'document_idle' }],
+    content_scripts: [{ matches: sites, js: ['formats.js', 'catalog.js', 'core.js', 'content.js'], run_at: 'document_idle' }],
     action: { default_popup: 'popup.html', default_title: '__MSG_actionTitle__', default_icon: icons },
     options_ui: { page: 'help.html', open_in_tab: true }, icons,
     content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'" },
-    background: browser === 'firefox' ? { scripts: ['catalog.js', 'core.js', 'background.js'] } : { service_worker: 'background.js' },
+    background: browser === 'firefox' ? { scripts: ['formats.js', 'catalog.js', 'core.js', 'background.js'] } : { service_worker: 'background.js' },
   };
   if (browser === 'firefox') {
     manifest.browser_specific_settings = { gecko: {
