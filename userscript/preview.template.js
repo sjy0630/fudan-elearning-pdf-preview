@@ -17,6 +17,8 @@
 (function () {
   'use strict';
   /* EMBED_SHARED_FORMATS */
+  /* EMBED_PDFJS_BUNDLE */
+  /* EMBED_PDFJS_RUNTIME */
 
   function pdfLinkFromClick(event) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return null;
