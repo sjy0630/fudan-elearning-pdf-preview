@@ -1,0 +1,23 @@
+{
+  "generator": "generate_fixtures.py",
+  "generator_license": "MIT",
+  "generated_content_license": "CC0-1.0",
+  "reportlab_version": "4.4.9",
+  "input_provenance": "Original synthetic text; no documents or font files copied",
+  "user_password": "reader-test-2026",
+  "owner_password": "fixture-owner-2026",
+  "files": {
+    "chinese-cmap-fonts.pdf": {
+      "bytes": 3781,
+      "sha256": "4ed6da12d3f58023c3a4ae4625c345d744c3bce30136daf08e002b154e686744"
+    },
+    "encrypted-known-password.pdf": {
+      "bytes": 2125,
+      "sha256": "3fe2cbe6ac909042353640f99c0423f97bae9f20ef24a943bd770ac4979eced5"
+    },
+    "damaged-valid-header.pdf": {
+      "bytes": 96,
+      "sha256": "851b603cf7d29750a70f9265620d573c684420c02627afd348a7a89e37420713"
+    }
+  }
+}

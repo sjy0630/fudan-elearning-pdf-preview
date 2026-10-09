@@ -5,18 +5,25 @@ import { bundlePdfjs } from './bundle-pdfjs.mjs';
 
 const root = new URL('../', import.meta.url);
 export async function generateUserscript() {
-  const [template, registry, pdfjs, runtime] = await Promise.all([
+  const [template, registry, pdfjs, runtime, preference, reader, css] = await Promise.all([
     readFile(new URL('userscript/preview.template.js', root), 'utf8'),
     readFile(new URL('shared/formats.js', root), 'utf8'),
     bundlePdfjs(),
     readFile(new URL('userscript/pdfjs-runtime.js', root), 'utf8'),
+    readFile(new URL('userscript/pdf-preference.js', root), 'utf8'),
+    readFile(new URL('userscript/pdfjs-reader.js', root), 'utf8'),
+    readFile(new URL('userscript/pdfjs-reader.css', root), 'utf8'),
   ]);
   const marker = '/* EMBED_SHARED_FORMATS */';
   if (template.split(marker).length !== 2 || !registry.includes('globalThis.CanvasFileFormats =')) {
     throw new Error('Invalid userscript template or registry');
   }
   let output = template.replace(marker, () => registry.replace('globalThis.CanvasFileFormats =', 'const CanvasFileFormats =').trimEnd());
-  for (const [embedMarker, source] of [['/* EMBED_PDFJS_BUNDLE */', pdfjs], ['/* EMBED_PDFJS_RUNTIME */', runtime]]) {
+  for (const [embedMarker, source] of [
+    ['/* EMBED_PDFJS_BUNDLE */', pdfjs], ['/* EMBED_PDFJS_RUNTIME */', runtime],
+    ['/* EMBED_PDF_PREFERENCE */', preference], ['/* EMBED_PDFJS_READER */', reader],
+    ['/* EMBED_PDFJS_CSS */', `const pdfjsReaderCss = ${JSON.stringify(css)};`],
+  ]) {
     if (output.split(embedMarker).length !== 2) throw new Error(`Expected exactly one ${embedMarker} marker`);
     output = output.replace(embedMarker, () => source.trimEnd());
   }

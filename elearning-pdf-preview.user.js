@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         复旦 eLearning PDF 弹窗预览
 // @namespace    https://elearning.fudan.edu.cn/
-// @version      1.1.0
+// @version      1.2.0
 // @description  在 eLearning 页面中预览 PDF、图片和文本，无需自动保存文件
 // @license      MIT
 // @homepageURL  https://github.com/sjy0630/fudan-elearning-pdf-preview
@@ -11,6 +11,8 @@
 // @match        https://elearning.fudan.edu.cn/*
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @connect      *
 // ==/UserScript==
 
@@ -1382,6 +1384,206 @@ function createPdfjsRuntime() {
   }
   return { getLibrary, open };
 }
+  function createPdfPreference({ getValue, setValue } = {}) {
+  const key = 'fudan-preview.pdf-reader';
+  let current = 'native';
+  let selected = false;
+  let loadPromise;
+  let writeQueue = Promise.resolve();
+
+  function load() {
+    if (!loadPromise) {
+      loadPromise = (async () => {
+        try {
+          if (typeof getValue !== 'function') return { persisted: false };
+          const stored = await getValue(key, 'native');
+          // A user choice takes precedence even if the initial storage read is late.
+          if (!selected) current = stored === 'pdfjs' ? 'pdfjs' : 'native';
+          return { persisted: true };
+        } catch {
+          return { persisted: false };
+        }
+      })();
+    }
+    return loadPromise;
+  }
+
+  async function set(id) {
+    if (id !== 'native' && id !== 'pdfjs') throw new RangeError('Unsupported PDF reader');
+    selected = true;
+    current = id;
+    // Each storage operation settles before the next starts, including failures.
+    writeQueue = writeQueue.then(async () => {
+      try {
+        if (typeof setValue !== 'function') return { persisted: false };
+        await setValue(key, id);
+        return { persisted: true };
+      } catch {
+        return { persisted: false };
+      }
+    });
+    return writeQueue;
+  }
+
+  return { get: () => current, load, set };
+}
+  let cachedPdfjsRuntime;
+function createPdfjsReader({ container, bytes, signal, onError }) {
+  const runtime = cachedPdfjsRuntime || (cachedPdfjsRuntime = createPdfjsRuntime());
+  const lifetime = new AbortController();
+  const root = document.createElement('div'); root.className = 'fdpdf-reader';
+  const controls = document.createElement('div'); controls.className = 'fdpdf-tools fdpdf-pdf-controls';
+  const scroll = document.createElement('div'); scroll.className = 'fdpdf-pdf-scroll';
+  const status = document.createElement('div'); status.className = 'fdpdf-reader-status'; status.setAttribute('role', 'status'); status.textContent = '正在加载内置 PDF.js…';
+  root.append(controls, status, scroll); container.append(root);
+  let documentProxy, opened, library, observer, cleanupPromise, passwordCleanup;
+  let closed = false, failed = false, readySettled = false, usable = false, generation = 0;
+  let pageNumber = 1, scale = 1, fit = true, lastFitWidth = 0, canvasTask, textTask;
+  let resolveReady, rejectReady;
+  const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+  ready.catch(() => {});
+  const abortError = () => new DOMException('PDF preview cancelled', 'AbortError');
+  const isCancellation = error => ['AbortError', 'AbortException', 'RenderingCancelledException'].includes(error?.name);
+  function control(action, label, handler) {
+    const node = document.createElement('button'); node.type = 'button'; node.className = 'fdpdf-action';
+    node.dataset.action = action; node.textContent = label; node.disabled = true;
+    node.addEventListener('click', handler, { signal: lifetime.signal }); controls.append(node); return node;
+  }
+  const previous = control('pdf-prev', '上一页', () => goTo(pageNumber - 1));
+  const pageLabel = document.createElement('label'); pageLabel.textContent = '页码 ';
+  const pageInput = document.createElement('input'); pageInput.type = 'number'; pageInput.min = '1'; pageInput.step = '1'; pageInput.value = '1'; pageInput.disabled = true; pageInput.setAttribute('aria-label', '页码');
+  const pageCount = document.createElement('span'); pageCount.className = 'fdpdf-page-count'; pageCount.textContent = '/ —';
+  pageLabel.append(pageInput); controls.append(pageLabel, pageCount);
+  const next = control('pdf-next', '下一页', () => goTo(pageNumber + 1));
+  const smaller = control('pdf-zoom-out', '缩小', () => zoom(1 / 1.25));
+  const larger = control('pdf-zoom-in', '放大', () => zoom(1.25));
+  const fitButton = control('pdf-fit', '适合宽度', () => { fit = true; void paint(); });
+  pageInput.addEventListener('change', () => goTo(Number(pageInput.value)), { signal: lifetime.signal });
+  pageInput.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); goTo(Number(pageInput.value)); } }, { signal: lifetime.signal });
+  function updateControls() {
+    previous.disabled = !usable || pageNumber <= 1; next.disabled = !usable || pageNumber >= documentProxy.numPages;
+    pageInput.disabled = smaller.disabled = larger.disabled = fitButton.disabled = !usable;
+    pageInput.value = String(pageNumber); fitButton.setAttribute('aria-pressed', String(fit));
+  }
+  function goTo(value) {
+    if (!usable || closed) return;
+    const target = Number.isFinite(value) ? Math.max(1, Math.min(documentProxy.numPages, Math.trunc(value))) : pageNumber;
+    pageInput.value = String(target);
+    if (target === pageNumber) return;
+    pageNumber = target; updateControls(); void paint();
+  }
+  function zoom(factor) {
+    if (!usable || closed) return;
+    fit = false; scale = Math.max(0.1, Math.min(5, scale * factor)); updateControls(); void paint();
+  }
+  function cancelPaint() {
+    canvasTask?.cancel(); textTask?.cancel(); canvasTask = textTask = null;
+  }
+  function rejectInitial(error) { if (!readySettled) { readySettled = true; rejectReady(error); } }
+  function fail(error) {
+    if (closed || failed) return;
+    failed = true; rejectInitial(error); void destroy();
+    if (!isCancellation(error) && typeof onError === 'function') {
+      try { Promise.resolve(onError(error)).catch(() => {}); } catch { /* Cleanup must finish even if a consumer fails. */ }
+    }
+  }
+  function checkViewport(viewport) {
+    if (![viewport.width, viewport.height, viewport.scale, viewport.userUnit].every(value => Number.isFinite(value) && value > 0)) {
+      throw new Error('PDF 页面尺寸无效。');
+    }
+  }
+  async function paint() {
+    const id = ++generation, number = pageNumber;
+    cancelPaint();
+    const current = () => !closed && id === generation;
+    try {
+      const page = await documentProxy.getPage(number);
+      if (!current()) return;
+      const natural = page.getViewport({ scale: 1 }); checkViewport(natural);
+      if (fit) {
+        lastFitWidth = scroll.clientWidth;
+        scale = Math.max(0.01, Math.min(5, Math.max(1, lastFitWidth - 24) / natural.width));
+      }
+      const viewport = page.getViewport({ scale }); checkViewport(viewport);
+      const sheet = document.createElement('div'); sheet.className = 'fdpdf-pdf-page'; sheet.dataset.page = String(number);
+      sheet.style.width = `${viewport.width}px`; sheet.style.height = `${viewport.height}px`;
+      sheet.style.setProperty('--scale-factor', String(viewport.scale)); sheet.style.setProperty('--user-unit', String(viewport.userUnit));
+      const canvas = document.createElement('canvas'); canvas.setAttribute('aria-label', `PDF 第 ${number} 页`);
+      const deviceRatio = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+      // The cap may reduce output below one pixel per CSS pixel on a large page.
+      const ratio = Math.min(deviceRatio, Math.sqrt(16000000 / viewport.width / viewport.height), 8192 / viewport.width, 8192 / viewport.height);
+      canvas.width = Math.max(1, Math.floor(viewport.width * ratio)); canvas.height = Math.max(1, Math.floor(viewport.height * ratio));
+      canvas.style.width = `${viewport.width}px`; canvas.style.height = `${viewport.height}px`;
+      const layer = document.createElement('div'); layer.className = 'fdpdf-text-layer textLayer';
+      sheet.append(canvas, layer); scroll.replaceChildren(sheet);
+      const render = page.render({ canvasContext: canvas.getContext('2d'), viewport, transform: [canvas.width / viewport.width, 0, 0, canvas.height / viewport.height, 0, 0] });
+      const text = new library.TextLayer({ textContentSource: page.streamTextContent({ includeMarkedContent: true, disableNormalization: true }), container: layer, viewport });
+      canvasTask = render; textTask = text;
+      await Promise.all([render.promise, text.render()]);
+      if (!current()) return;
+      canvasTask = textTask = null; sheet.dataset.ready = 'true'; status.hidden = true;
+      usable = true; updateControls();
+      if (!readySettled) { readySettled = true; resolveReady(); }
+    } catch (error) { if (current()) fail(error); }
+  }
+  function askPassword({ reason, signal: passwordSignal }) {
+    passwordCleanup?.();
+    if (closed || passwordSignal.aborted) return Promise.resolve(null);
+    status.hidden = true;
+    return new Promise(resolve => {
+      const form = document.createElement('form'); form.className = 'fdpdf-password';
+      const message = document.createElement('p'); message.setAttribute('role', 'status'); message.textContent = reason === 2 ? '密码不正确，请重试。' : '此 PDF 需要密码。';
+      const label = document.createElement('label'); label.textContent = 'PDF 密码 ';
+      const input = document.createElement('input'); input.type = 'password'; input.autocomplete = 'off'; input.setAttribute('aria-label', 'PDF 密码'); label.append(input);
+      const submit = document.createElement('button'); submit.type = 'submit'; submit.className = 'fdpdf-action'; submit.textContent = '解锁';
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'fdpdf-action'; cancel.textContent = '取消';
+      form.append(message, label, submit, cancel); root.insertBefore(form, scroll);
+      let settled = false;
+      const finish = value => {
+        if (settled) return; settled = true;
+        input.value = ''; form.removeEventListener('submit', onSubmit); cancel.removeEventListener('click', onCancel);
+        passwordSignal.removeEventListener('abort', onCancel); form.remove(); passwordCleanup = null;
+        if (!closed) { status.hidden = false; status.textContent = '正在加载内置 PDF.js…'; }
+        resolve(value);
+      };
+      const onCancel = () => finish(null);
+      const onSubmit = event => { event.preventDefault(); const value = input.value; input.value = ''; finish(value); };
+      form.addEventListener('submit', onSubmit); cancel.addEventListener('click', onCancel); passwordSignal.addEventListener('abort', onCancel, { once: true });
+      passwordCleanup = onCancel; input.focus();
+    });
+  }
+  function destroy() {
+    if (cleanupPromise) return cleanupPromise;
+    closed = true; generation++; usable = false;
+    signal?.removeEventListener('abort', destroy); lifetime.abort(); observer?.disconnect(); cancelPaint(); passwordCleanup?.();
+    root.remove(); rejectInitial(abortError());
+    cleanupPromise = Promise.resolve().then(() => opened?.destroy()).catch(() => {}).finally(() => library?.TextLayer.cleanup());
+    return cleanupPromise;
+  }
+  if (signal?.aborted) { void destroy(); return { ready, destroy }; }
+  signal?.addEventListener('abort', destroy, { once: true });
+  (async () => {
+    try {
+      library = runtime.getLibrary();
+      opened = runtime.open(bytes, { signal: lifetime.signal, onPassword: askPassword, onError: fail });
+      if (closed) { await opened.destroy(); return; }
+      documentProxy = await opened.promise;
+      if (closed) return;
+      pageCount.textContent = `/ ${documentProxy.numPages}`; pageInput.max = String(documentProxy.numPages);
+      observer = new ResizeObserver(() => { if (!closed && usable && fit && scroll.clientWidth !== lastFitWidth) void paint(); }); observer.observe(scroll);
+      await paint();
+    } catch (error) { if (!closed) fail(error); }
+  })();
+  return { ready, destroy };
+}
+  const pdfjsReaderCss = "/* Essential text-layer rules adapted from pdfjs-dist 6.3.289 web/pdf_viewer.css.\n * Copyright 2012 Mozilla Foundation; Apache-2.0 (full license bundled above).\n * Changes: scoped selectors, flattened rules, standalone reader layout. */\n.fdpdf-reader { display:flex; flex-direction:column; height:100%; min-height:0; }\n.fdpdf-pdfjs { height:100%; }\n.fdpdf-pdf-controls { flex:none; background:white; }\n.fdpdf-pdf-controls input { width:4.5em; padding:5px; font:inherit; }\n.fdpdf-overlay button:disabled { opacity:.5; cursor:default; }\n.fdpdf-reader-select { font:inherit; padding:6px; border:1px solid #cbd5e1; border-radius:6px; background:white; color:#1f2937; }\n.fdpdf-preference-warning { color:#92400e; }\n.fdpdf-pdf-scroll { flex:1; min-height:0; overflow:auto; padding:12px; box-sizing:border-box; scrollbar-gutter:stable; }\n.fdpdf-pdf-page { position:relative; margin:0 auto; background:white; box-shadow:0 1px 6px #0003; --total-scale-factor:calc(var(--scale-factor) * var(--user-unit)); --scale-round-x:1px; --scale-round-y:1px; }\n.fdpdf-pdf-page canvas { display:block; }\n.fdpdf-reader-status,.fdpdf-password { margin:16px; padding:16px; background:white; border-radius:8px; }\n.fdpdf-password label,.fdpdf-password button { margin-right:8px; }\n.fdpdf-password input { font:inherit; }\n.fdpdf-text-layer { position:absolute; text-align:initial; inset:0; overflow:clip; opacity:1; line-height:1; letter-spacing:normal; word-spacing:normal; color-scheme:only light; text-size-adjust:none; forced-color-adjust:none; transform-origin:0 0; caret-color:CanvasText; z-index:0; --min-font-size:1; --text-scale-factor:calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv:calc(1 / var(--min-font-size)); }\n.fdpdf-text-layer :is(span,br) { color:transparent; position:absolute; white-space:pre; cursor:text; transform-origin:0% 0%; user-select:text; -webkit-user-select:text; }\n.fdpdf-text-layer > :not(.markedContent),.fdpdf-text-layer .markedContent span:not(.markedContent) { z-index:1; --scale-x:1; --rotate:0deg; font-size:calc(var(--text-scale-factor) * var(--font-height)); transform:rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }\n.fdpdf-text-layer .markedContent { display:contents; }\n.fdpdf-text-layer span[role=img] { user-select:none; cursor:default; }\n.fdpdf-text-layer ::selection { background:rgb(0 100 255 / .25); }\n.fdpdf-text-layer br::selection { background:transparent; }\n.fdpdf-text-layer[data-main-rotation=\"90\"] { transform:rotate(90deg) translateY(-100%); }\n.fdpdf-text-layer[data-main-rotation=\"180\"] { transform:rotate(180deg) translate(-100%,-100%); }\n.fdpdf-text-layer[data-main-rotation=\"270\"] { transform:rotate(270deg) translateX(-100%); }\n";
+
+  const pdfPreference = createPdfPreference({
+    getValue: (...args) => { if (typeof GM_getValue !== 'function') throw new Error('Storage unavailable'); return GM_getValue(...args); },
+    setValue: (...args) => { if (typeof GM_setValue !== 'function') throw new Error('Storage unavailable'); return GM_setValue(...args); },
+  });
+  let preferenceRevision = 0;
+  let preferenceWarningText = '';
 
   function pdfLinkFromClick(event) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return null;
@@ -1489,7 +1691,7 @@ function createPdfjsRuntime() {
     return blob;
   }
 
-  const state = { root: null, requestId: 0, objectUrl: null, controller: null, bytes: null, image: null, rotation: 0, zoom: 1, oldOverflow: '', trigger: null };
+  const state = { root: null, requestId: 0, readerId: 0, reader: null, readerController: null, objectUrl: null, controller: null, bytes: null, image: null, rotation: 0, zoom: 1, oldOverflow: '', trigger: null };
   function element(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -1520,7 +1722,7 @@ function createPdfjsRuntime() {
       .fdpdf-image { display:block; position:absolute; left:50%; top:50%; max-width:none; max-height:none; }
       .fdpdf-feedback { color:#334155; }
       @media(max-width:600px) { .fdpdf-overlay { padding:0; } .fdpdf-dialog { height:100%; border-radius:0; } .fdpdf-title { flex-basis:100%; } }
-    `;
+    ` + pdfjsReaderCss;
     const root = element('div','fdpdf-overlay'); root.hidden = true;
     const dialog = element('section','fdpdf-dialog'); dialog.setAttribute('role','dialog'); dialog.setAttribute('aria-modal','true'); dialog.setAttribute('aria-labelledby','fdpdf-title');
     const header = element('header','fdpdf-header');
@@ -1529,7 +1731,14 @@ function createPdfjsRuntime() {
     const downloadLink = element('a','fdpdf-action fdpdf-download','下载文件');
     const closeButton = button('close','关闭',closeDialog); closeButton.classList.add('fdpdf-close');
     header.append(title,originalLink,downloadLink,closeButton);
-    const imageTools = element('div','fdpdf-tools');
+    const pdfTools = element('div','fdpdf-tools fdpdf-pdf-tools');
+    const readerLabel = element('label','','阅读器 ');
+    const readerSelect = element('select','fdpdf-reader-select'); readerSelect.setAttribute('aria-label','阅读器');
+    for (const [value,label] of [['native','浏览器自带'],['pdfjs','内置 PDF.js']]) { const option = element('option','',label); option.value = value; readerSelect.append(option); }
+    readerSelect.addEventListener('change',() => chooseReader(readerSelect.value)); readerLabel.append(readerSelect);
+    const preferenceWarning = element('span','fdpdf-preference-warning'); preferenceWarning.setAttribute('role','status');
+    pdfTools.append(readerLabel,preferenceWarning);
+    const imageTools = element('div','fdpdf-tools fdpdf-image-tools');
     imageTools.append(button('zoom-in','放大',() => { state.zoom *= 1.25; layoutImage(); }),button('zoom-out','缩小',() => { state.zoom /= 1.25; layoutImage(); }),button('rotate','旋转 90°',() => { state.rotation = (state.rotation + 90) % 360; fitImage(); }),button('fit','适应窗口',fitImage));
     const textTools = element('div','fdpdf-tools');
     const encoding = element('select','fdpdf-encoding'); encoding.setAttribute('aria-label','文本编码');
@@ -1541,11 +1750,12 @@ function createPdfjsRuntime() {
     const body = element('div','fdpdf-body');
     const status = element('div','fdpdf-status'); status.setAttribute('role','status');
     const viewer = element('iframe','fdpdf-viewer'); viewer.title = 'PDF 预览';
+    const pdfjsHost = element('div','fdpdf-pdfjs');
     const text = element('pre','fdpdf-text'); text.tabIndex = 0;
     const stage = element('div','fdpdf-image-stage');
-    body.append(status,viewer,text,stage); dialog.append(header,imageTools,textTools,body); root.append(dialog);
+    body.append(status,viewer,pdfjsHost,text,stage); dialog.append(header,pdfTools,imageTools,textTools,body); root.append(dialog);
     document.head.append(style); document.body.append(root);
-    Object.assign(state,{root,title,originalLink,downloadLink,closeButton,imageTools,textTools,encoding,wrap,feedback,body,status,viewer,text,stage});
+    Object.assign(state,{root,title,originalLink,downloadLink,closeButton,pdfTools,readerSelect,preferenceWarning,pdfjsHost,imageTools,textTools,encoding,wrap,feedback,body,status,viewer,text,stage});
     root.addEventListener('click',event => { if (event.target === root) closeDialog(); });
     document.addEventListener('keydown',event => { if (event.key === 'Escape' && !root.hidden) closeDialog(); });
   }
@@ -1557,16 +1767,76 @@ function createPdfjsRuntime() {
   }
   function clearPending() {
     state.requestId++;
+    cleanupReader();
     state.controller?.abort(); state.controller = null;
     if (!state.root) return;
     state.viewer.onload = state.viewer.onerror = null; state.viewer.removeAttribute('src'); state.viewer.hidden = true;
     if (state.image) { state.image.onload = state.image.onerror = null; state.image.removeAttribute('src'); state.image.remove(); }
     state.image = null; state.bytes = null; state.file = null;
     state.text.textContent = ''; state.text.hidden = true; state.stage.hidden = true;
-    state.imageTools.hidden = state.textTools.hidden = true;
+    state.pdfTools.hidden = state.imageTools.hidden = state.textTools.hidden = true;
+    state.preferenceWarning.textContent = '';
     state.encoding.value = 'auto'; state.wrap.setAttribute('aria-pressed','true'); state.text.style.whiteSpace = 'pre-wrap';
     state.feedback.textContent = ''; state.rotation = 0; state.zoom = 1;
     dropObjectUrl();
+  }
+  function cleanupReader() {
+    state.readerId++;
+    state.readerController?.abort(); state.readerController = null;
+    const reader = state.reader; state.reader = null;
+    if (reader) void reader.destroy().catch(() => {});
+    if (!state.root) return;
+    state.viewer.onload = state.viewer.onerror = null; state.viewer.removeAttribute('src'); state.viewer.hidden = true;
+    state.pdfjsHost.hidden = true;
+  }
+  function loadReaderPreference() {
+    const id = state.requestId, revision = preferenceRevision;
+    state.readerSelect.value = pdfPreference.get();
+    state.preferenceWarning.textContent = preferenceWarningText;
+    void pdfPreference.load().then(result => {
+      if (id !== state.requestId || revision !== preferenceRevision || state.file?.format !== 'pdf') return;
+      const previous = state.readerSelect.value;
+      state.readerSelect.value = pdfPreference.get();
+      if (!result.persisted && revision === 0) preferenceWarningText = '无法记住阅读器选择，本次仍可使用。';
+      state.preferenceWarning.textContent = preferenceWarningText;
+      if (state.bytes && previous !== pdfPreference.get()) mountReader();
+    });
+  }
+  function chooseReader(value) {
+    const revision = ++preferenceRevision;
+    const saved = pdfPreference.set(value);
+    state.readerSelect.value = value;
+    if (state.bytes && state.file?.format === 'pdf') mountReader();
+    void saved.then(result => {
+      if (revision !== preferenceRevision) return;
+      preferenceWarningText = result.persisted ? '' : '无法记住阅读器选择，本次仍可使用。';
+      if (state.file?.format === 'pdf') state.preferenceWarning.textContent = preferenceWarningText;
+    });
+  }
+  function mountReader() {
+    cleanupReader();
+    const fileId = state.requestId, readerId = state.readerId;
+    const current = () => fileId === state.requestId && readerId === state.readerId && !state.root.hidden;
+    if (pdfPreference.get() === 'native') {
+      state.status.textContent = '正在加载浏览器预览…'; state.status.hidden = false;
+      state.viewer.onload = () => { if (current()) state.status.hidden = true; };
+      state.viewer.onerror = () => { if (current()) showError('浏览器未能嵌入 PDF 预览。'); };
+      state.viewer.hidden = false; state.viewer.src = state.objectUrl;
+      return;
+    }
+    state.status.hidden = true; state.pdfjsHost.hidden = false;
+    const controller = new AbortController(); state.readerController = controller;
+    let reported = false;
+    const report = error => {
+      if (!current() || controller.signal.aborted || reported) return;
+      reported = true;
+      showError(error?.name === 'AbortError' ? '已取消 PDF 密码输入。' : `内置 PDF.js 无法预览此文件：${error?.message || '未知错误'}`);
+      state.status.append(document.createElement('br'),button('native-fallback','切换到浏览器自带',() => chooseReader('native')));
+    };
+    try {
+      state.reader = createPdfjsReader({ container: state.pdfjsHost, bytes: state.bytes, signal: controller.signal, onError: report });
+      void state.reader.ready.catch(report);
+    } catch (error) { report(error); }
   }
   function closeDialog() {
     if (!state.root || state.root.hidden) return;
@@ -1632,10 +1902,10 @@ function createPdfjsRuntime() {
       if (file.format === 'text') {
         state.bytes = bytes; state.textTools.hidden = false; renderText();
       } else if (file.format === 'pdf') {
+        clearTimeout(timeout);
+        state.bytes = bytes;
         setDownload(new Blob([bytes],{type:validated.mime}));
-        state.viewer.onload = () => { if (current()) state.status.hidden = true; };
-        state.viewer.onerror = () => { if (current()) showError('浏览器未能嵌入 PDF 预览。'); };
-        state.viewer.hidden = false; state.viewer.src = state.objectUrl;
+        mountReader();
       } else {
         const image = new Image(); image.className = 'fdpdf-image'; image.alt = file.name; state.image = image;
         // Validate dimensions before decode, then check actual browser dimensions too (including EXIF orientation).
@@ -1668,6 +1938,8 @@ function createPdfjsRuntime() {
     state.title.textContent = file.name; state.originalLink.href = file.url.href; state.originalLink.hidden = false;
     state.status.textContent = '正在读取文件…'; state.status.hidden = false;
     state.root.hidden = false; document.body.style.overflow = 'hidden'; state.closeButton.focus();
+    state.pdfTools.hidden = file.format !== 'pdf';
+    if (file.format === 'pdf') loadReaderPreference();
     void loadPdf(file);
   }
   window.addEventListener('pagehide',closeDialog);
