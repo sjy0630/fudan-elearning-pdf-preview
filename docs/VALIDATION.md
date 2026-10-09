@@ -1,5 +1,19 @@
 # 独立扩展验证记录
 
+## 油猴多格式候选检查（2026-10-09）
+
+油猴版本 1.1.0，单文件安装候选；未推送、发布或更新真实用户的脚本。
+
+- 独立复跑 `node --test tests/userscript.test.cjs tests/userscript-build.test.cjs tests/formats.test.cjs`：24 项通过。覆盖共享格式、编码、精确链接识别、fetch 流式限制、GM 响应头/进度/最终大小限制、MIME 保留、中止与延迟回调，以及生成文件的一致性。
+- `node scripts/build-userscript.mjs --check` 与 `node --check elearning-pdf-preview.user.js` 通过。最终脚本内嵌私有共享格式模块，无 `@require`，保留原更新地址及已有 GM 权限。
+- Chromium 155.0.8059.12 与 Firefox 156.0 的最终注入式场景均通过：文本/脚本字面量安全显示，换行，UTF-16 与 GB18030 编码恢复，UTF-8 及 GB18030 原字节下载，三类图片解码/旋转/缩放/适应尺寸，损坏图像，HTML 登录响应，原文件入口，剪贴板成功或手动复制回退，模拟 GM 旧回调，关闭/重开、pagehide 和超时清理。Edge 本次未复跑：先前临时测试二进制已不存在，未重新安装。
+- 当前浏览器脚本使用隔离页面、模拟文件响应和注入脚本；GM 与剪贴板部分场景使用模拟接口。不能替代真实 Tampermonkey 安装、升级、管理器沙箱、学校登录和 CDN 验证。
+- PDF 占位样例仅用于检查 Blob/iframe 路由，不是有效 PDF 的实际渲染证据。图片、文本行为的验证不能扩大为原生 PDF 阅读器兼容承诺。
+
+全套 `npm test` 本次得到 48 项通过、1 个本地化测试套件未完成：该套件重建扩展时在复制 `node_modules/pdfjs-dist/web/images/toolbarButton-viewsManagerToggle.svg` 到 `dist/chromium/vendor/images` 阶段长时间停滞，限时后终止该构建进程，套件因 SIGTERM 结束。文件所在目录有 iCloud 按需读取历史，但本轮未证明停滞的唯一原因。这不是源码断言失败，也不能算全套测试通过；本轮生成的 `dist` 不作为已验收安装包。旧版已发布 ZIP 不在此次油猴交付范围。
+
+下文为历史扩展验证记录，不自动代表当前候选已重跑全部检查。
+
 日期：2026-09-29；版本：1.1.0；目标：免 Tampermonkey 的首版独立扩展。
 
 ## 已验证

@@ -49,7 +49,7 @@ Files: create `extension/file-viewer.html`, `file-viewer.mjs`, `file-viewer.css`
 
 ## Task 4: Userscript build and parity
 
-Status: in progress. User-facing installable script remains single-file; source-generation tools are for maintainers only.
+Status: implementation and independent spec/quality reviews completed 2026-10-09. Focused userscript/build/shared suites 24/24 pass; final injected Chromium 155.0.8059.12 and Firefox 156.0 scenarios pass, including raw GB18030 downloads and rotated/fit image geometry. Native PDF test proves only Blob iframe routing; actual Tampermonkey installation/upgrade remains untested. User-facing installable script remains single-file; source-generation tools are for maintainers only. Separate edition branch delivery is still pending Task 5.
 
 Files: create `userscript/preview.template.js`, `scripts/build-userscript.mjs`; generate `elearning-pdf-preview.user.js`; expand `tests/userscript.test.cjs` and browser fixtures.
 
@@ -59,6 +59,8 @@ Files: create `userscript/preview.template.js`, `scripts/build-userscript.mjs`; 
 - [ ] Test browser dialog operations, repeat/close load race, original/download links, raw download bytes and PDF regression with injected script. Explicitly distinguish injected GM mocks from real manager testing. Commit, spec review, quality review.
 
 ## Task 5: Final validation and separate edition handoff
+
+Status 2026-10-09: README/roadmap/validation updated, but not complete. Full npm test: 48 pass, one localization suite incomplete after bounded termination of a stalled PDF.js image-asset copy during build. Current dist is not accepted as a verified package. No push, merge, release or store work performed; userscript-only branch delivery still pending. Updated user priority is userscript reader choice after this format iteration, with distribution work deferred and other-school support removed.
 
 Files: `README.md`, `docs/VALIDATION.md`, `docs/ROADMAP.md`, help/store capability descriptions; userscript-only branch packaging.
 
