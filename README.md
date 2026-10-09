@@ -58,7 +58,7 @@
 
 ## 维护与验证
 
-维护者修改 [`userscript/preview.template.js`](userscript/preview.template.js) 和 [`shared/formats.js`](shared/formats.js)，再生成可安装的单文件，不直接维护生成文件。构建与单元测试只使用 Node.js；注入式浏览器检查另需锁定的 Playwright 开发依赖和测试浏览器。
+维护者修改 [`userscript/preview.template.js`](userscript/preview.template.js) 和 [`shared/formats.js`](shared/formats.js)，再生成可安装的单文件，不直接维护生成文件。开发环境需要 Node.js 20 或以上，推荐 Node.js 24。构建与单元测试只使用 Node.js；注入式浏览器检查另需锁定的 Playwright 开发依赖和测试浏览器。以下均为维护者的开发测试准备，普通用户安装单个脚本无需这些依赖。
 
 在新的开发目录中安装依赖并运行：
 
@@ -69,7 +69,15 @@ npm run check
 npm test
 ```
 
-`build:userscript` 与 `check:userscript` 是对应的专用命令。`npm run test:userscript` 运行隔离 Chromium 注入检查；可用 `BROWSER_ENGINE=firefox` 选择 Firefox，用 `BROWSER_EXECUTABLE` 指定已有的测试浏览器路径。
+`build:userscript` 与 `check:userscript` 是对应的专用命令。`npm ci` 安装开发依赖，不会安装测试浏览器；首次运行浏览器检查前另行准备：
+
+```sh
+npx playwright install chromium firefox
+npm run test:userscript
+BROWSER_ENGINE=firefox npm run test:userscript
+```
+
+`npm run test:userscript` 默认运行隔离 Chromium 注入检查，`BROWSER_ENGINE=firefox` 选择 Firefox；也可用 `BROWSER_EXECUTABLE` 指定已有的测试浏览器路径。
 
 当前 24 项单元测试及 Chromium / Firefox 注入式检查的证据和边界见[验证记录](docs/VALIDATION.md)。页面注入和模拟 GM 接口不能替代真实 Tampermonkey、学校登录及 CDN 测试；PDF 占位样例仅验证 Blob/iframe 路由，不代表真实 PDF 已渲染。
 
