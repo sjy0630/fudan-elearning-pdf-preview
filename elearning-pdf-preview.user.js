@@ -1470,6 +1470,8 @@ function createPdfjsReader({ container, bytes, signal, onError }) {
     const target = Number.isFinite(value) ? Math.max(1, Math.min(documentProxy.numPages, Math.trunc(value))) : pageNumber;
     pageInput.value = String(target);
     if (target === pageNumber) return;
+    // Reset with the page choice, before async rendering or a following zoom can supersede it.
+    scroll.scrollTo({ left: 0, top: 0, behavior: 'instant' });
     pageNumber = target; updateControls(); void paint();
   }
   function zoom(factor) {

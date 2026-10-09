@@ -86,6 +86,28 @@ try {
   assert.ok(limited.width <= 8192 && limited.height <= 8192);
   assert.equal(limited.cssWidth, 3060); assert.equal(limited.cssHeight, 3960);
   console.log('PASS actual zoom ceiling and 16M canvas cap at DPR2:', JSON.stringify(limited));
+  const scrollPosition = () => page.locator('.fdpdf-pdf-scroll').evaluate(node => [node.scrollLeft, node.scrollTop]);
+  const scrollToEnd = async () => {
+    await page.locator('.fdpdf-pdf-scroll').evaluate(node => { node.scrollLeft = node.scrollWidth; node.scrollTop = node.scrollHeight; });
+    assert.ok((await scrollPosition()).every(value => value > 0), 'fixture must be scrolled both horizontally and vertically');
+  };
+  await page.getByRole('button', { name: '上一页', exact: true }).click(); await painted(1);
+  await scrollToEnd();
+  await page.getByRole('button', { name: '下一页', exact: true }).click(); await painted(2);
+  assert.deepEqual(await scrollPosition(), [0, 0], 'next page must start at its top-left corner');
+  await scrollToEnd();
+  await page.getByLabel('页码', { exact: true }).fill('1'); await page.getByLabel('页码', { exact: true }).press('Enter'); await painted(1);
+  assert.deepEqual(await scrollPosition(), [0, 0], 'page-number jump must start at its top-left corner');
+  await page.getByRole('button', { name: '下一页', exact: true }).click(); await painted(2);
+  await page.locator('.fdpdf-pdf-scroll').evaluate(node => { node.scrollLeft = 150; node.scrollTop = 200; });
+  await page.getByRole('button', { name: '缩小', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.fdpdf-pdf-page')?.clientWidth < 3060); await painted(2);
+  assert.deepEqual(await scrollPosition(), [150, 200], 'zoom-only repaint must preserve the current scroll position');
+  await scrollToEnd();
+  await page.evaluate(() => { document.querySelector('[data-action=pdf-prev]').click(); document.querySelector('[data-action=pdf-zoom-in]').click(); });
+  await painted(1);
+  assert.deepEqual(await scrollPosition(), [0, 0], 'zoom superseding a pending page render must retain its navigation reset');
+  await page.getByRole('button', { name: '下一页', exact: true }).click(); await painted(2);
   await page.getByRole('button', { name: '适合宽度', exact: true }).click(); await painted(2);
   await page.waitForFunction(() => document.querySelector('.fdpdf-pdf-page').clientWidth <= document.querySelector('.fdpdf-pdf-scroll').clientWidth);
   await page.getByLabel('页码', { exact: true }).fill('999'); await page.getByLabel('页码', { exact: true }).press('Enter'); await painted(2);
