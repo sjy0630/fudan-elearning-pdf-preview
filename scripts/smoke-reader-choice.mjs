@@ -79,6 +79,13 @@ try {
   const width = await page.locator('.fdpdf-pdf-page').evaluate(node => node.clientWidth);
   await page.getByRole('button', { name: '放大', exact: true }).click();
   await page.waitForFunction(width => document.querySelector('.fdpdf-pdf-page')?.clientWidth > width, width); await painted(2);
+  for (let step = 0; step < 10; step++) await page.getByRole('button', { name: '放大', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.fdpdf-pdf-page')?.dataset.ready === 'true' && document.querySelector('.fdpdf-pdf-page')?.clientWidth === 3060);
+  const limited = await page.locator('.fdpdf-pdf-page canvas').evaluate(canvas => ({ width:canvas.width, height:canvas.height, cssWidth:canvas.clientWidth, cssHeight:canvas.clientHeight }));
+  assert.ok(limited.width * limited.height <= 16000000 && limited.width * limited.height > 15000000, JSON.stringify(limited));
+  assert.ok(limited.width <= 8192 && limited.height <= 8192);
+  assert.equal(limited.cssWidth, 3060); assert.equal(limited.cssHeight, 3960);
+  console.log('PASS actual zoom ceiling and 16M canvas cap at DPR2:', JSON.stringify(limited));
   await page.getByRole('button', { name: '适合宽度', exact: true }).click(); await painted(2);
   await page.waitForFunction(() => document.querySelector('.fdpdf-pdf-page').clientWidth <= document.querySelector('.fdpdf-pdf-scroll').clientWidth);
   await page.getByLabel('页码', { exact: true }).fill('999'); await page.getByLabel('页码', { exact: true }).press('Enter'); await painted(2);
