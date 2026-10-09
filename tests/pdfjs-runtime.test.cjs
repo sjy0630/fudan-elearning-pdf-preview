@@ -8,10 +8,25 @@ const deferred = () => { let resolve, reject; const promise = new Promise((a, b)
 const tick = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 
 // Doubles cover only the browser Worker/timer and PDF.js library boundaries.
-function setup({ workerThrows = false, destroyHangs = false } = {}) {
+function setup({ workerThrows = false, destroyHangs = false, destroyThrows = false } = {}) {
   assert.ok(fs.existsSync(path.join(__dirname, '../userscript/pdfjs-runtime.js')), 'createPdfjsRuntime API exists');
   const state = { workers: [], urls: [], revoked: [], tasks: [], pdfWorkers: [], timers: new Map(), libraryLoads: 0 };
   let timerId = 0;
+  class ElementDouble {
+    constructor(tagName) { this.tagName = tagName; this.parentNode = null; this.children = []; }
+    append(node) { node.remove(); this.children.push(node); node.parentNode = this; }
+    remove() {
+      if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(node => node !== this);
+      this.parentNode = null;
+    }
+  }
+  const document = {
+    body: new ElementDouble('body'), fonts: new Set(), adoptedStyleSheets: [],
+    createElement(tagName) { assert.equal(this, document, 'native Document receiver'); return new ElementDouble(tagName); },
+    createElementNS(namespace, tagName) { assert.equal(this, document, 'native Document receiver'); return new ElementDouble(tagName); },
+    get URL() { assert.equal(this, document, 'native Document getter receiver'); return 'https://reader.test/'; },
+  };
+  state.document = document;
   class WorkerDouble extends EventTarget {
     constructor(url, options) { super(); if (workerThrows) throw new Error('CSP blocked worker'); this.url = url; this.options = options; this.terminated = 0; state.workers.push(this); }
     terminate() { this.terminated++; }
@@ -25,13 +40,13 @@ function setup({ workerThrows = false, destroyHangs = false } = {}) {
     PDFWorker: PDFWorkerDouble,
     getDocument(options) {
       const result = deferred();
-      const task = { ...result, options, destroyed: 0, destroy() { this.destroyed++; return destroyHangs ? new Promise(() => {}) : Promise.resolve(); } };
+      const task = { ...result, options, destroyed: 0, destroy() { this.destroyed++; if (destroyThrows) throw new Error('destroy failed'); return destroyHangs ? new Promise(() => {}) : Promise.resolve(); } };
       state.tasks.push(task);
       return task;
     },
   };
   const sandbox = {
-    Uint8Array, Blob, DOMException, AbortController, Worker: WorkerDouble,
+    Uint8Array, Blob, DOMException, AbortController, Worker: WorkerDouble, document,
     URL: { createObjectURL(blob) { state.urls.push(blob); return `blob:private-${state.urls.length}`; }, revokeObjectURL(url) { state.revoked.push(url); } },
     setTimeout(callback, delay) { const id = ++timerId; state.timers.set(id, { callback, delay }); return id; },
     clearTimeout(id) { state.timers.delete(id); },
@@ -200,3 +215,50 @@ test('normal close and caller abort do not report fatal worker errors', async ()
     assert.deepEqual(errors, []);
   }
 });
+
+for (const outcome of ['normal', 'hanging', 'throwing']) {
+  test(`document-owned fonts and DOM clean up after ${outcome} PDF.js destruction without touching other documents`, async () => {
+    const { state, runtime } = setup({ destroyHangs: outcome === 'hanging', destroyThrows: outcome === 'throwing' });
+    const first = runtime.open(new Uint8Array([1])); first.promise.catch(() => {});
+    const second = runtime.open(new Uint8Array([2])); second.promise.catch(() => {});
+    state.workers.forEach(worker => worker.ready()); await tick();
+    state.tasks.forEach(task => task.resolve({ numPages: 2 }));
+    await Promise.all([first.promise, second.promise]);
+    const firstDocument = state.tasks[0].options.ownerDocument;
+    const secondDocument = state.tasks[1].options.ownerDocument;
+    assert.ok(firstDocument, 'PDF.js receives a document with resource ownership');
+    assert.notEqual(firstDocument, secondDocument);
+    assert.equal(firstDocument.URL, 'https://reader.test/');
+    assert.equal(firstDocument.body, state.document.body);
+    assert.equal(firstDocument.adoptedStyleSheets, undefined, 'PDF.js uses an owned style element fallback');
+    assert.deepEqual(state.document.adoptedStyleSheets, [], 'the real document is not modified');
+    const pageFont = {}, firstFont = {}, secondFont = {};
+    state.document.fonts.add(pageFont);
+    firstDocument.fonts.add(firstFont);
+    firstDocument.fonts.add(pageFont); // Re-adding an ambient face does not transfer ownership.
+    assert.equal(firstDocument.fonts.delete(pageFont), false, 'a document cannot unregister an ambient face');
+    secondDocument.fonts.add(secondFont);
+    assert.equal(firstDocument.fonts.size, 3, 'native FontFaceSet getter receiver');
+    assert.deepEqual([...firstDocument.fonts], [pageFont, firstFont, secondFont], 'native iterator receiver');
+    const pageNode = state.document.createElement('aside'); state.document.body.append(pageNode);
+    const firstRoot = firstDocument.createElement('div');
+    const svg = firstDocument.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const defs = firstDocument.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    firstRoot.append(svg); svg.append(defs); firstDocument.body.append(firstRoot);
+    const secondRoot = secondDocument.createElement('style'); secondDocument.body.append(secondRoot);
+    const firstDestroyed = first.destroy(); await tick();
+    if (outcome === 'hanging') await state.fireTimers();
+    await firstDestroyed;
+    assert.deepEqual([...state.document.fonts], [pageFont, secondFont]);
+    assert.deepEqual(state.document.body.children, [pageNode, secondRoot]);
+    assert.equal(defs.parentNode.parentNode, firstRoot, 'late PDF.js cleanup can still traverse its detached filter root');
+    assert.equal(secondDocument.createElement('span').tagName, 'span', 'the other document remains usable');
+    firstDocument.fonts.add({});
+    assert.equal(state.document.fonts.size, 2, 'late native font completion cannot leak after disposal');
+    const secondDestroyed = second.destroy(); await tick();
+    if (outcome === 'hanging') await state.fireTimers();
+    await secondDestroyed;
+    assert.deepEqual([...state.document.fonts], [pageFont]);
+    assert.deepEqual(state.document.body.children, [pageNode]);
+  });
+}

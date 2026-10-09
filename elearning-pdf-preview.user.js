@@ -1198,7 +1198,62 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     }
   };
 }
-  function createPdfjsRuntime() {
+  function createPdfjsDocumentResources(realDocument) {
+  const ownedFonts = new Set(), ownedNodes = new Set();
+  let disposed = false;
+  const forward = (target, key) => {
+    const value = Reflect.get(target, key, target);
+    return typeof value === 'function' ? value.bind(target) : value;
+  };
+  const nativeFonts = realDocument.fonts;
+  const fonts = nativeFonts && new Proxy(nativeFonts, {
+    get(target, key, receiver) {
+      if (key === 'add') return font => {
+        if (disposed) return receiver;
+        const alreadyPresent = target.has(font);
+        target.add(font);
+        if (!alreadyPresent) ownedFonts.add(font);
+        return receiver;
+      };
+      if (key === 'delete') return font => ownedFonts.delete(font) && target.delete(font);
+      return forward(target, key);
+    },
+  });
+  const ownerDocument = new Proxy(realDocument, {
+    get(target, key) {
+      if (key === 'fonts') return fonts;
+      // PDF.js supports a <style> fallback. Keep it inside our node ownership
+      // instead of adding a constructed sheet to the page's adopted sheets.
+      if (key === 'adoptedStyleSheets') return undefined;
+      if (key === 'createElement' || key === 'createElementNS') return (...args) => {
+        if (disposed) throw new DOMException('PDF document disposed', 'AbortError');
+        const node = Reflect.apply(Reflect.get(target, key, target), target, args);
+        // Scratch canvases may otherwise be collectible before document close.
+        ownedNodes.add(new WeakRef(node));
+        return node;
+      };
+      return forward(target, key);
+    },
+    set: (target, key, value) => Reflect.set(target, key, value, target),
+  });
+  function destroy() {
+    if (disposed) return;
+    disposed = true;
+    try {
+      for (const font of ownedFonts) nativeFonts.delete(font);
+    } finally {
+      ownedFonts.clear();
+      const liveNodes = new Set([...ownedNodes].map(reference => reference.deref()).filter(Boolean));
+      // Preserve child links: a delayed PDF.js filter cleanup still traverses
+      // defs -> svg -> div after its Terminate acknowledgement finally arrives.
+      for (const node of liveNodes) if (!liveNodes.has(node.parentNode)) node.remove();
+      ownedNodes.clear();
+    }
+  }
+  return { ownerDocument, destroy };
+}
+
+function createPdfjsRuntime() {
   let assets, library;
   const getAssets = () => assets || (assets = createEmbeddedPdfjs());
   const getLibrary = () => library || (library = getAssets().getLibrary());
@@ -1206,7 +1261,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
   function open(bytes, { signal, onPassword, onError } = {}) {
     const lifetime = new AbortController();
     const aborted = () => new DOMException('PDF loading cancelled', 'AbortError');
-    let worker, pdfWorker, loadingTask, workerUrl, timer, cleanupPromise;
+    let worker, pdfWorker, loadingTask, workerUrl, timer, cleanupPromise, documentResources;
     let closed = false, settled = false, resolveDocument, rejectDocument, resolveReady, rejectReady;
     const promise = new Promise((resolve, reject) => { resolveDocument = resolve; rejectDocument = reject; });
     const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
@@ -1264,7 +1319,9 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
           clearTimeout(deadline);
           try { pdfWorker?.destroy(); } finally {
             try { worker?.terminate(); } finally {
-              if (workerUrl) URL.revokeObjectURL(workerUrl);
+              try { documentResources?.destroy(); } finally {
+                if (workerUrl) URL.revokeObjectURL(workerUrl);
+              }
             }
           }
         }
@@ -1289,8 +1346,10 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         await ready;
         if (closed) return;
         pdfWorker = new pdfjs.PDFWorker({ port: worker });
+        documentResources = createPdfjsDocumentResources(globalThis.document);
         loadingTask = pdfjs.getDocument({
           data: bytes.slice(), worker: pdfWorker,
+          ownerDocument: documentResources.ownerDocument,
           BinaryDataFactory: embedded.BinaryDataFactory,
           cMapPacked: true, useWorkerFetch: false, isEvalSupported: false,
           stopAtErrors: true,
