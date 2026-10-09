@@ -62,6 +62,8 @@ Files: create `userscript/preview.template.js`, `scripts/build-userscript.mjs`; 
 
 Status 2026-10-09: README/roadmap/validation updated, but not complete. Full npm test: 48 pass, one localization suite incomplete after bounded termination of a stalled PDF.js image-asset copy during build. Current dist is not accepted as a verified package. No push, merge, release or store work performed; userscript-only branch delivery still pending. Updated user priority is userscript reader choice after this format iteration, with distribution work deferred and other-school support removed.
 
+Follow-up 2026-10-09: no product-code changes needed; full suite now passes 51/51, syntax/build/package verification pass (308 resources in each archive), installed Chromium 155 and Firefox 156.0.1 each pass 20 checks. Prior 1.1.1 ZIP hashes remain unchanged. Edge not rerun. Separate userscript-only delivery remains next; latest remote main2307dbd incorporates local main9075a3f with an identical file tree, so use remote main as the new branch base while preserving local main.
+
 Files: `README.md`, `docs/VALIDATION.md`, `docs/ROADMAP.md`, help/store capability descriptions; userscript-only branch packaging.
 
 - [ ] Run `npm test`, `npm run check`, `npm run build`, `npm run verify:packages`, then serial browser suites. Record exact test counts, versions, failed attempts and untested scenarios. Re-run package tests after changes, but never rebuild during browser suite.

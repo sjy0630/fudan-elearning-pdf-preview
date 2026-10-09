@@ -12,6 +12,8 @@
 
 全套 `npm test` 本次得到 48 项通过、1 个本地化测试套件未完成：该套件重建扩展时在复制 `node_modules/pdfjs-dist/web/images/toolbarButton-viewsManagerToggle.svg` 到 `dist/chromium/vendor/images` 阶段长时间停滞，限时后终止该构建进程，套件因 SIGTERM 结束。文件所在目录有 iCloud 按需读取历史，但本轮未证明停滞的唯一原因。这不是源码断言失败，也不能算全套测试通过；本轮生成的 `dist` 不作为已验收安装包。旧版已发布 ZIP 不在此次油猴交付范围。
 
+同日后续复跑：上述失败尝试保留为历史记录。当前资源可读取，未修改产品代码，完整 `npm test` 在约 71 秒后通过 **51/51**；`npm run check`、`npm run build`、`npm run verify:packages` 均通过，两个 1.2.0 包各核验 308 个资源。独立 Chromium 155 与 Firefox 156.0.1 再次各通过 20 项安装包检查，结果为 `output/playwright/ci/result.json`、`output/playwright/firefox/result.json`（本地、不纳入 Git）。1.1.1 两个 ZIP 的 SHA-256 与下文历史记录完全一致，未覆盖旧包。此前停顿不能再视为当前持续阻塞，但其唯一原因仍未确定。Firefox 此次启动前同样在读取本地依赖时等待较久，确认同一进程仍在推进后继续等待，最终完成，无需重启。
+
 下文为历史扩展验证记录，不自动代表当前候选已重跑全部检查。
 
 日期：2026-09-29；版本：1.1.0；目标：免 Tampermonkey 的首版独立扩展。
