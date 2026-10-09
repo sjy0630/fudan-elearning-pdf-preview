@@ -21,7 +21,9 @@
 2. 点击[安装用户脚本](https://raw.githubusercontent.com/sjy0630/fudan-elearning-pdf-preview/main/elearning-pdf-preview.user.js)，在 Tampermonkey 的安装页面确认。
 3. 重新加载 `elearning.fudan.edu.cn` 的作业页面。
 
-本地候选如需试用，可在 Tampermonkey 中选择“添加新脚本”，把本分支 [`elearning-pdf-preview.user.js`](elearning-pdf-preview.user.js) 的完整内容粘贴到编辑器并保存。普通使用者只需这一个文件，无需 Node.js、构建环境或额外资源。候选尚未验证真实管理器安装及升级流程，详见[验证记录](docs/VALIDATION.md)。
+较新的 Chrome 若在 Tampermonkey 中提示“允许运行用户脚本”，请按提示在该扩展的详情页启用对应选项，再刷新课程页面；本次隔离测试的 Chrome 155 / Tampermonkey 5.5.0 需要这一步。
+
+本地候选如需试用，可在 Tampermonkey 中选择“添加新脚本”，把本分支 [`elearning-pdf-preview.user.js`](elearning-pdf-preview.user.js) 的完整内容粘贴到编辑器并保存。普通使用者只需这一个文件，无需 Node.js、构建环境或额外资源。候选已在临时 Chrome for Testing 155 / Tampermonkey 5.5.0 中验证安装及合成页面基本预览；升级流程和其他环境尚未验证，详见[验证记录](docs/VALIDATION.md)。
 
 脚本元数据保留原来的 `main` 更新地址和下载地址。准备这个本地分支不会自动更新已安装脚本，也不代表多格式候选已经发布。
 
@@ -80,6 +82,8 @@ BROWSER_ENGINE=firefox npm run test:userscript
 `npm run test:userscript` 默认运行隔离 Chromium 注入检查，`BROWSER_ENGINE=firefox` 选择 Firefox；也可用 `BROWSER_EXECUTABLE` 指定已有的测试浏览器路径。
 
 当前 24 项单元测试及 Chromium / Firefox 注入式检查的证据和边界见[验证记录](docs/VALIDATION.md)。页面注入和模拟 GM 接口不能替代真实 Tampermonkey、学校登录及 CDN 测试；PDF 占位样例仅验证 Blob/iframe 路由，不代表真实 PDF 已渲染。
+
+另已用真实 Tampermonkey 5.5.0 在全新 Chrome for Testing 155 配置中验证正常安装、文本/图片基本操作、刷新后运行和关闭清理。该测试仍使用合成页面，不代表真实课程、跨站取回文件、脚本升级或所有浏览器均已验证。
 
 后续计划见[路线图](docs/ROADMAP.md)；[阅读器选择设计](docs/superpowers/specs/2026-10-09-userscript-reader-choice-design.md)仍待用户复核。
 
