@@ -2,13 +2,13 @@
 
 在 eLearning 页面点击支持的文件名时，在当前页面弹窗预览 PDF、图片和文本，适用于网站自带预览不可用的情况。本项目与复旦大学及其 eLearning 平台无官方关联。
 
-当前分支 `feature/userscript-multiformat` 是 **1.1.0 本地未发布候选**。多格式功能只在此候选中；下方公开安装链接仍指向 `main` 的既有 PDF 版，尚未更新为本候选。PDF 当前固定使用浏览器自带阅读器，阅读器切换尚未实现。
+当前分支 `feature/userscript-reader-choice` 是 **1.2.0 本地未发布候选**，包含图片、文本预览和 PDF 阅读器切换。下方公开安装链接仍指向 `main` 的既有 PDF 版，尚未更新为本候选。
 
 ## 选择版本
 
 本项目保留两个版本，分别维护，不合并代码：
 
-- **油猴脚本版（公开 `main` 分支）**：需要 Tampermonkey，按下方步骤安装，在当前页面弹窗预览。本分支单独准备油猴多格式更新。
+- **油猴脚本版（公开 `main` 分支）**：需要 Tampermonkey，按下方步骤安装，在当前页面弹窗预览。本分支单独准备多格式和阅读器切换更新。
 - **独立插件版（`feature/standalone-extension` 分支）**：无需 Tampermonkey，自带阅读器。[查看插件版源码与说明](https://github.com/sjy0630/fudan-elearning-pdf-preview/tree/feature/standalone-extension)；Edge 用户可直接[从微软商店安装](https://microsoftedge.microsoft.com/addons/detail/ibgcgppobifaogaodeimafhpmoonioch)。
 
 普通 Edge 用户推荐商店插件版。请选择其中一种使用，不要同时启用同名油猴脚本和插件。
@@ -23,7 +23,11 @@
 
 较新的 Chrome 若在 Tampermonkey 中提示“允许运行用户脚本”，请按提示在该扩展的详情页启用对应选项，再刷新课程页面；本次隔离测试的 Chrome 155 / Tampermonkey 5.5.0 需要这一步。
 
-本地候选如需试用，可在 Tampermonkey 中选择“添加新脚本”，把本分支 [`elearning-pdf-preview.user.js`](elearning-pdf-preview.user.js) 的完整内容粘贴到编辑器并保存。普通使用者只需这一个文件，无需 Node.js、构建环境或额外资源。候选已在临时 Chrome for Testing 155 / Tampermonkey 5.5.0 中验证安装及合成页面基本预览；升级流程和其他环境尚未验证，详见[验证记录](docs/VALIDATION.md)。
+本地候选如需试用，可在 Tampermonkey 中选择“添加新脚本”，把本分支 [`elearning-pdf-preview.user.js`](elearning-pdf-preview.user.js) 的完整内容粘贴到编辑器并保存；已装同名脚本时编辑现有脚本，避免重复启用。普通使用者只需这一个文件，无需 Node.js、构建环境或额外资源。内置阅读器使安装文件增大，保存时请稍等。1.2.0 的验证范围和仍未覆盖的环境见[阅读器验证记录](docs/READER-VALIDATION.md)。
+
+最终候选约 4.85 MiB，已通过 Chromium / Firefox 整合测试，以及 Chrome for Testing 155 + Tampermonkey 5.5.0 的真实手动安装与合成页面验收。仍需真实学校课程试用；普通 URL 安装、升级权限提示和浏览器重启尚未验证，不代表所有浏览器或管理器都已兼容。
+
+1.2.0 新增 `GM_getValue`、`GM_setValue` 权限，仅用来保存阅读器选择；如管理器提示权限变更，请核对后确认。未增加网站匹配或联网范围。
 
 脚本元数据保留原来的 `main` 更新地址和下载地址。准备这个本地分支不会自动更新已安装脚本，也不代表多格式候选已经发布。
 
@@ -45,22 +49,24 @@
 - 图片支持放大、缩小、旋转 90°和适应窗口；文本支持编码选择、自动换行及复制。剪贴板不可用时会选中文本并提示手动复制。
 - 成功读取、校验并准备好预览后，弹窗显示“下载文件”，保存读取到的原始字节；切换文本编码不会改变下载内容。
 - 点“关闭”、弹窗外部或按 Escape 返回页面。关闭、重开和页面离开时会取消请求并释放临时资源。
-- 预览失败时显示原因，并保留“打开原文件”入口；可通过学校原页面继续查看或下载。失败状态不保证提供可用的本地文件下载。
-- PDF 通过浏览器自带阅读器显示，其界面和行为由浏览器决定。目前没有阅读器选择菜单或内置 PDF.js。
+- 预览失败时显示原因，并保留“打开原文件”入口；可通过学校原页面继续查看或下载。若文件读取或校验失败，不保证提供可用的本地文件下载。
+- PDF 弹窗顶部可选择“浏览器自带”或“内置 PDF.js”，首次默认浏览器自带。选择会被记住；无法保存时会提示，但当前页面仍可使用。
+- PDF.js 支持翻页、页码跳转、缩放、适合宽度和选中文字；加密文件可输入密码、重试或取消，密码不保存。暂不提供批注、编辑、表单填写、OCR 或全文搜索。
+- 切换阅读器复用已读取的文件，不再请求文件；切入 PDF.js 从第 1 页开始。两种阅读器共用原字节下载。PDF.js 出错或取消密码输入后可手动“切换到浏览器自带”，不会自动改变保存的选择。
 
 预览仍需从网站传输文件数据到浏览器，只是不主动保存到“下载”目录。浏览器自身可能使用缓存。
 
 ## 请求与隐私
 
-脚本仅在 `https://elearning.fudan.edu.cn/` 运行，初始文件请求限于本站文件地址。先使用浏览器请求；仅在请求被浏览器阻止等情况下，尝试已有的 `GM_xmlhttpRequest` 读取回退。Tampermonkey 元数据中的 `@connect *` 用于学校文件服务的跨域重定向，并未增加新的管理器权限。
+脚本仅在 `https://elearning.fudan.edu.cn/` 运行，初始文件请求限于本站文件地址。先使用浏览器请求；仅在请求被浏览器阻止等情况下，尝试已有的 `GM_xmlhttpRequest` 读取回退。Tampermonkey 元数据中的既有 `@connect *` 用于学校文件服务的跨域重定向，本轮保持不变。
 
 浏览器流式读取会检查声明大小和已读取字节数。管理器回退会检查响应头、进度与最终文件大小；能否在完整下载前提前中止取决于管理器是否提供及时的头部和进度事件。全部读取完成后仍会检查最终大小。
 
-文件仅在本机浏览器处理，不上传到第三方预览服务；运行时不加载 CDN、远程脚本或 `@require` 资源。
+文件仅在本机浏览器处理，不上传到第三方预览服务；运行时不加载 CDN、远程脚本或 `@require` 资源。PDF.js 核心、后台处理代码及字体/CMap/解码资源已打包进脚本；不执行 PDF 内的脚本。不修改学校安全策略；若站点禁止后台任务，使用明确的错误提示和手动原生回退。
 
 ## 维护与验证
 
-维护者修改 [`userscript/preview.template.js`](userscript/preview.template.js) 和 [`shared/formats.js`](shared/formats.js)，再生成可安装的单文件，不直接维护生成文件。开发环境需要 Node.js 20 或以上，推荐 Node.js 24。构建与单元测试只使用 Node.js；注入式浏览器检查另需锁定的 Playwright 开发依赖和测试浏览器。以下均为维护者的开发测试准备，普通用户安装单个脚本无需这些依赖。
+维护者修改 [`userscript/preview.template.js`](userscript/preview.template.js)、同目录的阅读器模块和 [`shared/formats.js`](shared/formats.js)，再生成可安装的单文件，不直接维护生成文件。开发环境需要 Node.js 22.13.0 或以上，推荐 Node.js 24。先安装锁定的开发依赖（PDF.js、esbuild、Playwright）；构建会把阅读器与资源打入脚本，浏览器测试还需准备测试浏览器。以下均为维护者的开发测试准备，普通用户安装单个脚本无需这些依赖。
 
 在新的开发目录中安装依赖并运行：
 
@@ -77,19 +83,19 @@ npm test
 npx playwright install chromium firefox
 npm run test:userscript
 BROWSER_ENGINE=firefox npm run test:userscript
+npm run test:reader
+BROWSER_ENGINE=firefox npm run test:reader
 ```
 
 `npm run test:userscript` 默认运行隔离 Chromium 注入检查，`BROWSER_ENGINE=firefox` 选择 Firefox；也可用 `BROWSER_EXECUTABLE` 指定已有的测试浏览器路径。
 
-当前 24 项单元测试及 Chromium / Firefox 注入式检查的证据和边界见[验证记录](docs/VALIDATION.md)。页面注入和模拟 GM 接口不能替代真实 Tampermonkey、学校登录及 CDN 测试；PDF 占位样例仅验证 Blob/iframe 路由，不代表真实 PDF 已渲染。
+`test:reader` 使用有效的普通、中文、加密及损坏合成 PDF 检查阅读器；`test:pdfjs` 单独验证离线运行时和资源清理。准确的版本、结果及真实管理器与注入测试的区别见[阅读器验证记录](docs/READER-VALIDATION.md)。此前 1.1.0 的多格式证据单独保留在[旧版验证记录](docs/VALIDATION.md)，不能视为 1.2.0 全部兼容的证明。
 
-另已用真实 Tampermonkey 5.5.0 在全新 Chrome for Testing 155 配置中验证正常安装、文本/图片基本操作、刷新后运行和关闭清理。该测试仍使用合成页面，不代表真实课程、跨站取回文件、脚本升级或所有浏览器均已验证。
-
-后续计划见[路线图](docs/ROADMAP.md)；[阅读器选择设计](docs/superpowers/specs/2026-10-09-userscript-reader-choice-design.md)仍待用户复核。
+后续计划见[路线图](docs/ROADMAP.md)；本轮范围见[阅读器选择设计](docs/superpowers/specs/2026-10-09-userscript-reader-choice-design.md)。
 
 ## 许可
 
-本项目以 [MIT 许可证](LICENSE)发布。
+本项目代码以 [MIT 许可证](LICENSE)发布。内嵌 PDF.js 及其资源保留各自许可证，完整第三方许可文本随生成脚本一起分发。
 
 ## Star 历史
 
