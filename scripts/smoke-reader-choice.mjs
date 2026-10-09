@@ -149,6 +149,14 @@ try {
   await page.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByRole('button', { name: '切换到浏览器自带', exact: true }).waitFor();
   assert.equal(await selector.inputValue(), 'pdfjs'); assert.deepEqual(await downloadBytes(), body); await close();
+  await open(); await password.waitFor(); await password.fill('discard-on-close'); await close();
+  body = pdf; await open(); await painted();
+  assert.equal(await password.count(), 0, 'closing a password prompt must not leave stale input in the next document');
+  // Trigger an actual uncaught error inside the real PDF.js worker after first paint.
+  await page.evaluate(() => testWorkers.at(-1).postMessage({ targetName: 'worker', sourceName: 'main', action: 'reader-smoke-fatal-worker-error' }));
+  await page.getByRole('button', { name: '切换到浏览器自带', exact: true }).waitFor();
+  assert.match(await page.locator('.fdpdf-status').textContent(), /Worker/);
+  assert.equal(await selector.inputValue(), 'pdfjs'); assert.deepEqual(await downloadBytes(), pdf); await close();
   body = await readFile(new URL('../tests/fixtures/reader/damaged-valid-header.pdf', import.meta.url));
   await open(); await selector.selectOption('pdfjs');
   await page.getByRole('button', { name: '切换到浏览器自带', exact: true }).waitFor();
@@ -159,6 +167,8 @@ try {
   assert.equal(await selector.inputValue(), 'native'); assert.deepEqual(await downloadBytes(), pdf);
   await close();
   await page.waitForFunction(() => workerCount === terminated);
-  assert.deepEqual(errors, []); assert.deepEqual(unexpected, []);
-  console.log(`PASS ${process.env.BROWSER_ENGINE || 'chromium'} ${browser.version()}: PDF reader choice, real text selection, paging/zoom/fit, original-byte downloads, stored preference, non-PDF isolation, rapid lifecycle, password and CSP fallback (injected GM storage, not a manager installation)`);
+  assert.equal(errors.length, 1, 'only the deliberately injected worker failure may reach the browser error event');
+  assert.match(errors[0], /Unknown action from worker: reader-smoke-fatal-worker-error/);
+  assert.deepEqual(unexpected, []);
+  console.log(`PASS ${process.env.BROWSER_ENGINE || 'chromium'} ${browser.version()}: PDF reader choice, real text selection, paging/zoom/fit, original-byte downloads, stored preference races, non-PDF isolation, rapid lifecycle, password cancel/close, post-ready worker failure and CSP fallback (injected GM storage, not a manager installation)`);
 } finally { await browser.close(); }
