@@ -18,6 +18,9 @@ function loadScript(overrides = {}) {
     Blob,
     AbortController,
     DOMException,
+    TextDecoder,
+    Uint8Array,
+    ArrayBuffer,
     setTimeout,
     clearTimeout,
     location: {
@@ -60,6 +63,74 @@ test('recognizes the assignment PDF and derives its download endpoint', () => {
   assert.equal(result.name, '示例讲义.pdf');
   assert.equal(result.downloadUrl.href,
     'https://elearning.fudan.edu.cn/courses/12345/files/67890/download?download_frd=1');
+});
+
+test('same final-suffix whitelist, exact Canvas routes and verifier preservation', () => {
+  const { pdfLinkFromClick: identify } = loadScript();
+  for (const suffix of ['png','jpg','jpeg','webp','txt','csv','log','json','xml','yaml','yml','c','h','cpp','hpp','py','js','ts','java','css','sql','sh','pdf']) {
+    const file = identify(clickFor('https://elearning.fudan.edu.cn/files/12/preview?verifier=a%2Bb', 'example.' + suffix));
+    assert.ok(file, suffix);
+    assert.equal(file.downloadUrl.searchParams.get('verifier'), 'a+b');
+  }
+  for (const href of ['https://user:pass@elearning.fudan.edu.cn/files/12', 'https://elearning.fudan.edu.cn/files/12/nonsense', 'https://evil.test/files/12']) assert.equal(identify(clickFor(href,'x.pdf')),null);
+  for (const name of ['x.pdf.exe','x.svg','x.html','x.pdf extra']) assert.equal(identify(clickFor('https://elearning.fudan.edu.cn/files/12',name)),null);
+  assert.equal(identify(clickFor('https://elearning.fudan.edu.cn/static/name.txt','View file')).name,'name.txt');
+});
+
+const fileFor = format => ({ format, downloadUrl: new URL('https://elearning.fudan.edu.cn/files/12/download') });
+test('fetch checks declared and streamed per-format limits without GM fallback', async () => {
+  let gm = 0, cancelled = false;
+  const response = () => new Response(new ReadableStream({ start(c) { c.enqueue(new Uint8Array(2*1024*1024+1)); }, cancel() { cancelled = true; } }));
+  const api = loadScript({ fetch: async () => response(), GM_xmlhttpRequest: () => gm++ });
+  await assert.rejects(api.retrievePdf(fileFor('text'), new AbortController().signal), /超过/);
+  assert.ok(cancelled); assert.equal(gm,0);
+  const declared = loadScript({ fetch: async () => new Response('ok',{headers:{'content-length':String(20*1024*1024+1)}}), GM_xmlhttpRequest: () => gm++ });
+  await assert.rejects(declared.retrievePdf(fileFor('png'),new AbortController().signal), /超过/);
+  assert.equal(gm,0);
+});
+
+test('body read failures and HTTP errors never trigger privileged retries', async () => {
+  let gm = 0;
+  const api = loadScript({ fetch: async () => new Response(new ReadableStream({ start(c) { c.error(new TypeError('broken body')); } })), GM_xmlhttpRequest: () => gm++ });
+  await assert.rejects(api.retrievePdf(fileFor('text'),new AbortController().signal),/broken body/);
+  const forbidden = loadScript({ fetch: async () => new Response('',{status:403}), GM_xmlhttpRequest: () => gm++ });
+  await assert.rejects(forbidden.retrievePdf(fileFor('text'),new AbortController().signal),/权限/);
+  assert.equal(gm,0);
+});
+
+test('oversize errors tell the user the selected format limit', async () => {
+  for (const [format,limit] of [['text',2],['png',20],['pdf',100]]) {
+    const api=loadScript({fetch:async()=>new Response('',{headers:{'content-length':String(limit*1024*1024+1)}})});
+    await assert.rejects(api.retrievePdf(fileFor(format),new AbortController().signal),new RegExp(`${limit} MiB`));
+  }
+});
+
+test('GM headers, progress and timeout reject once and abort the request', async () => {
+  for (const trigger of [o => o.onreadystatechange({responseHeaders:'Content-Length: 2097153\r\n'}),o => o.onprogress({loaded:2097153}),o => o.ontimeout()]) {
+    let options, aborted=0;
+    const api = loadScript({fetch:async()=>{throw new TypeError('blocked');},GM_xmlhttpRequest:o=>{options=o;return{abort(){aborted++;options.onabort();}};}});
+    const pending=api.retrievePdf(fileFor('text'),new AbortController().signal);
+    await new Promise(setImmediate);trigger(options);options.onload({status:200,response:new Blob(['late'])});
+    await assert.rejects(pending,/超过|超时/);assert.equal(aborted,1);
+  }
+});
+
+test('rejects suffix-bearing fake Canvas subroutes', () => {
+  const {pdfLinkFromClick}=loadScript();
+  assert.equal(pdfLinkFromClick(clickFor('https://elearning.fudan.edu.cn/files/12/nonsense.txt','x.txt')),null);
+});
+test('GM preserves MIME, rejects final size and ignores late callbacks after abort', async () => {
+  let callbacks, aborted = 0;
+  const api = loadScript({ fetch: async () => { throw new TypeError('CORS'); }, GM_xmlhttpRequest: options => { callbacks=options; return {abort(){aborted++;}}; } });
+  const control = new AbortController(); const pending = api.retrievePdf(fileFor('text'),control.signal);
+  await new Promise(setImmediate); control.abort(); callbacks.onload({status:200,response:new Blob(['late'])});
+  await assert.rejects(pending,{name:'AbortError'}); assert.equal(aborted,1);
+  const success = api.retrievePdf(fileFor('text'),new AbortController().signal); await new Promise(setImmediate);
+  callbacks.onload({status:200,response:new Blob(['hello'],{type:'text/plain'})});
+  assert.equal((await success).type,'text/plain');
+  const large = api.retrievePdf(fileFor('text'),new AbortController().signal); await new Promise(setImmediate);
+  callbacks.onload({status:200,response:new Blob([new Uint8Array(2*1024*1024+1)])});
+  await assert.rejects(large,/超过/); assert.equal(aborted,2);
 });
 
 test('leaves download controls, non-PDF files and modified clicks alone', () => {

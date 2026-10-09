@@ -5,6 +5,9 @@
   "license": "MIT",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:userscript": "node scripts/build-userscript.mjs",
+    "check:userscript": "node scripts/build-userscript.mjs --check && node --check elearning-pdf-preview.user.js",
+    "test:userscript": "node scripts/smoke-userscript.mjs",
     "test": "node --test tests/*.test.cjs",
     "check": "node --check extension/core.js && node --check extension/content.js && node --check extension/background.js && node --check extension/viewer.mjs && node --check extension/file-viewer.mjs && node --check scripts/smoke-extension.mjs && node --check scripts/smoke-files.mjs",
     "verify:packages": "node scripts/verify-packages.mjs",
