@@ -3,13 +3,18 @@
   "version": "1.2.0",
   "private": true,
   "license": "MIT",
+  "engines": { "node": ">=22.13.0" },
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build": "node scripts/build-userscript.mjs && node scripts/build.mjs",
+    "build:extension": "node scripts/build.mjs",
     "build:userscript": "node scripts/build-userscript.mjs",
+    "check": "npm run check:userscript && npm run check:extension",
+    "check:extension": "node --check extension/core.js && node --check extension/content.js && node --check extension/background.js && node --check extension/viewer.mjs && node --check extension/file-viewer.mjs && node --check scripts/smoke-extension.mjs && node --check scripts/smoke-files.mjs",
     "check:userscript": "node scripts/build-userscript.mjs --check && node --check elearning-pdf-preview.user.js",
-    "test:userscript": "node scripts/smoke-userscript.mjs",
     "test": "node --test tests/*.test.cjs",
-    "check": "node --check extension/core.js && node --check extension/content.js && node --check extension/background.js && node --check extension/viewer.mjs && node --check extension/file-viewer.mjs && node --check scripts/smoke-extension.mjs && node --check scripts/smoke-files.mjs",
+    "test:userscript": "node scripts/smoke-userscript.mjs",
+    "test:pdfjs": "node scripts/smoke-pdfjs-runtime.mjs",
+    "test:reader": "node scripts/smoke-reader-choice.mjs",
     "verify:packages": "node scripts/verify-packages.mjs",
     "test:browser": "node scripts/smoke-extension.mjs",
     "test:firefox": "node scripts/smoke-firefox.mjs",
@@ -19,6 +24,7 @@
     "pdfjs-dist": "6.3.289"
   },
   "devDependencies": {
+    "esbuild": "0.25.12",
     "fflate": "0.8.3",
     "playwright": "1.63.0",
     "selenium-webdriver": "4.49.0"

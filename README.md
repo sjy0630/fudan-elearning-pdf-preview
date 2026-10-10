@@ -1,121 +1,103 @@
-# 复旦 eLearning PDF 预览 · 独立插件版
+# 复旦 eLearning 文件预览
 
-在 eLearning 作业页面点击 PDF 文件名即可阅读，适用于网站提示“没有预览可用于此文件”的情况。本项目与复旦大学及其 eLearning 平台无官方关联。
+在 eLearning 页面点击支持的文件名时，在当前页面弹窗预览 PDF、图片和文本，适用于网站自带预览不可用的情况。本项目与复旦大学及其 eLearning 平台无官方关联。
 
-本项目保留两个版本，分别维护，不合并代码：
+油猴脚本 **1.2.0** 支持图片、文本预览和 PDF 阅读器切换。下方安装链接跟随 `main` 更新；完整变更见 [1.2.0 说明](docs/releases/userscript-v1.2.0.md)。
 
-- **独立插件版（当前分支）**：无需 Tampermonkey，推荐 Edge 用户[从微软商店安装](https://microsoftedge.microsoft.com/addons/detail/ibgcgppobifaogaodeimafhpmoonioch)。
-- **油猴脚本版（`main` 分支）**：[查看脚本版及安装说明](https://github.com/sjy0630/fudan-elearning-pdf-preview/tree/main)，需要 Tampermonkey。
+## 选择版本
 
-请选择其中一种使用，避免同时启用两个版本。
+本仓库同时提供两个独立安装方式，共用格式校验，不要同时启用：
 
-### 开发中的多格式候选（尚未发布）
+- **油猴脚本版（`main` 分支）**：需要 Tampermonkey，按下方步骤安装，在当前页面弹窗预览。
+- **独立插件版（`extension/` 目录）**：无需 Tampermonkey，自带阅读器。Edge 用户可直接[从微软商店安装](https://microsoftedge.microsoft.com/addons/detail/ibgcgppobifaogaodeimafhpmoonioch)。[安装与构建说明](docs/EXTENSION.md)。仓库源码为 1.2.0，商店和已发布安装包不会随源码合并自动升级，具体已发布版本以商店及 Releases 为准。
 
-本地正在验证扩展 1.2.0 与油猴脚本 1.1.0：除 PDF 外，增加 PNG、JPEG、WebP 图片，以及 TXT、CSV、LOG、JSON、XML、YAML 和常见代码文件的纯文本预览。图片可缩放、旋转和适应窗口；文本可换行、切换编码、复制。代码只作为文字显示，不执行；不支持 Office、HTML/SVG 渲染或在线转换。
+普通 Edge 用户推荐商店插件版。请选择其中一种使用，不要同时启用同名油猴脚本和插件。
 
-候选上限为 PDF 100 MiB、图片 20 MiB、文本 2 MiB；图片另有尺寸限制。文件仍在浏览器本地处理，不上传到第三方。油猴跨站读取在管理器提供进度时会尽早中止超限传输，完成后也会检查实际大小；不能保证所有管理器都在完整下载前中止。
+## 安装
 
-这些改动尚未推送或发布，下面的商店、Release 与 `main` 安装链接不会自动提供此候选。两版的 PDF 阅读器目前仍固定，尚不能切换；下一步优先为油猴版设计阅读器选择。
+以下是油猴脚本版的安装和使用说明；普通 Edge 用户优先使用上方商店入口。
 
-## 独立扩展：免 Tampermonkey
-
-点击 PDF 文件名后，在新标签页打开自带阅读器。支持翻页、页码跳转、缩放、适合宽度、选择文字和下载，不依赖浏览器原生 PDF 预览设置。
-
-安装后也可以先点击“体验示例 PDF”：示例随扩展打包，无需学校账号或网络，就能体验翻页、缩放和文字选择。
-
-![Edge 中的独立扩展阅读器，使用生成的演示 PDF](docs/assets/edge-preview.png)
-
-### Edge 商店安装（推荐）
-
-**Edge 版已上架 Microsoft Edge Add-ons，无需油猴、开发者模式或手动解压。**
-
-1. 用 Edge 打开[官方商店安装页](https://microsoftedge.microsoft.com/addons/detail/ibgcgppobifaogaodeimafhpmoonioch)，点击“获取”并确认添加扩展。
-2. 如果安装过同名油猴脚本或手动加载的测试版扩展，请先停用旧版。
-3. 在同一浏览器登录复旦 eLearning，刷新已打开的课程页面，点击 PDF 文件名即可阅读。
-
-已有同学反馈在不开 VPN 的情况下成功安装；这仅是该同学的安装反馈，不代表所有网络、设备或真实课程 PDF 均已验证。
-
-**商店搜索不到怎么办？** 直接使用上面的[Edge 商店安装页](https://microsoftedge.microsoft.com/addons/detail/ibgcgppobifaogaodeimafhpmoonioch)。2026-09-30 用户反馈中文名、完整名称、`eLearning` 和 `fudan` 搜索均未找到；搜索结果可能受索引、地区和语言影响，原因尚未确认，不能承诺何时可搜到。详见[搜索观察记录](docs/STORE-SEARCH.md)。安装后请在同一浏览器登录、刷新课程页面，并停用重复的用户脚本或手动测试版。
-
-### Chrome / Edge 手动安装（开发测试）
-
-Chrome 和 Edge 使用同一个 Chromium 包；Firefox 使用单独的包。普通 Edge 用户优先选择上方商店安装。
-
-1. 从 [Releases 下载 Chromium 安装包](https://github.com/sjy0630/fudan-elearning-pdf-preview/releases/download/extension-v1.1.0/fudan-elearning-pdf-preview-chromium-1.1.0.zip)，并解压到一个长期保留的文件夹。
-2. Chrome 打开 `chrome://extensions`；Edge 打开 `edge://extensions`。开启“开发者模式”，点击“加载已解压的扩展”，选择包含 `manifest.json` 的文件夹。
-3. 登录 eLearning、刷新作业页面，然后点击 PDF 文件名。
-
-只需第一次安装时执行上述步骤。手动安装的版本不会通过商店自动更新；更换版本后需在扩展管理页点击刷新。如果以前安装过同名 Tampermonkey 脚本，请先停用旧脚本，避免重复预览。
-
-### Firefox
-
-Firefox 正式版需要 Mozilla 签名后的扩展才能长期安装，未签名 ZIP 不能作为面向普通用户的安装方式。开发测试可在 `about:debugging#/runtime/this-firefox` 点击“临时载入附加组件”，选择解压包中的 `manifest.json`；浏览器重启后需要重新载入。Firefox 包最低版本为 142。面向普通用户的安装链接将在签名和审核完成后补充。
-
-[下载 Firefox 未签名测试包](https://github.com/sjy0630/fudan-elearning-pdf-preview/releases/download/extension-v1.1.0/fudan-elearning-pdf-preview-firefox-1.1.0.zip)。两个安装包的 [SHA-256 校验文件](https://github.com/sjy0630/fudan-elearning-pdf-preview/releases/download/extension-v1.1.0/SHA256SUMS.txt)及版本说明见[独立插件版 v1.1.0 Release](https://github.com/sjy0630/fudan-elearning-pdf-preview/releases/tag/extension-v1.1.0)。请下载明确标注浏览器名称的 ZIP；GitHub 自动生成的“Source code”是源码，不是可直接加载的扩展包。
-
-### 文件与权限
-
-PDF 直接从学校或学校指定的文件服务器读取，并在浏览器里处理；不上传到第三方预览服务。默认网站权限仅覆盖 eLearning。如果学校把文件转到其他服务器，阅读器会在需要时显示目标域名，点击后只申请该域名的访问权限。
-
-文件上限为 100 MiB。预览仍会传输文件数据，但不会主动保存到下载目录。扫描 PDF 没有文字层时，不能直接选择文字。
-
-详见[隐私说明](docs/PRIVACY.md)和[商店提交材料](docs/STORE-LISTING.md)。
-
-### 从源码构建
-
-需要 Node.js 22.13.0 或更高版本（推荐 Node.js 24）；不需要另装 ZIP 工具，Windows、macOS、Linux 使用相同的构建命令：
-
-```sh
-npm ci --ignore-scripts --omit=optional
-npm test
-npm run check
-npm run build
-npm run verify:packages
-```
-
-两个浏览器版本与安装 ZIP 位于 `dist/`，每次构建自动生成对应的 `SHA256SUMS.txt` 校验文件。阅读器代码、worker、字体和图片解码资源都随扩展打包，不从远程 CDN 获取执行代码。PDF.js 固定版本及完整性保存在锁文件中，许可证随包提供。
-
-自动检查会在 Linux Chromium 与 Windows Edge 中加载扩展、运行模拟课程和离线示例，并保留截图与结果。它还会比较两个系统生成的安装包校验值。检查包只用于测试，不是商店签名安装包。开发者可运行 `npx playwright install chromium` 后执行 `npm run test:browser`；测试使用隔离配置，不读取日常浏览器账号。构建和安装开发依赖需要联网，普通用户安装后的阅读器不依赖这些开发工具。
-
-当前已在 macOS 的 Chromium 155 / Edge 154 / 官方 Firefox 156，以及自动检查环境的 Linux Chromium 153 / Windows Server 2025 Edge 153 中加载独立扩展，验证模拟作业页的 PDF 渲染、翻页、缩放、主动下载、权限失效和跨服务器授权提示。[首次跨系统检查全部通过](https://github.com/sjy0630/fudan-elearning-pdf-preview/actions/runs/36545334728)，Windows 与 Linux 安装包校验值一致。尚未替代真实登录课程文件、普通用户设备以及商店签名安装的最终验证。详见[验证记录](docs/VALIDATION.md)。
-
-2026-09-30 已提交 Edge 1.1.1 审核；本轮未查询其当前审批状态。上方 Release 链接指向 1.1.0，本地多格式候选为扩展 1.2.0，不能将它视作商店已发布功能。1.1.1 的语言适配仅覆盖扩展元数据，阅读器和帮助界面仍为中文；历史材料见[更新草稿记录](docs/releases/extension-v1.1.1-draft.md)。
-
-后续按[迭代路线图](docs/ROADMAP.md)推进：先完成图片与纯文本，再做油猴版 PDF 阅读器选择；安装和分发工作延后，当前不扩展其他学校。
-
-## 原版用户脚本：安装
+安装步骤：
 
 1. 确认 Chrome 中已安装并启用 Tampermonkey。
 2. 点击[安装用户脚本](https://raw.githubusercontent.com/sjy0630/fudan-elearning-pdf-preview/main/elearning-pdf-preview.user.js)，在 Tampermonkey 的安装页面确认。
 3. 重新加载 `elearning.fudan.edu.cn` 的作业页面。
 
-也可以在 Tampermonkey 中选择“添加新脚本”，把 [`elearning-pdf-preview.user.js`](elearning-pdf-preview.user.js) 的完整内容粘贴到编辑器并保存。脚本元数据包含更新地址，安装后可接收后续版本。
+较新的 Chrome 若在 Tampermonkey 中提示“允许运行用户脚本”，请按提示在该扩展的详情页启用对应选项，再刷新课程页面；本次隔离测试的 Chrome 155 / Tampermonkey 5.5.0 需要这一步。
 
-脚本仅在 `https://elearning.fudan.edu.cn/` 运行。Tampermonkey 元数据中的 `@connect *` 用于处理学校文件服务的跨域重定向；代码只会向当前 eLearning 站点的文件下载地址发起初始请求，不会把 PDF 发给其他自选服务。
+也可在 Tampermonkey 中选择“添加新脚本”，把 [`elearning-pdf-preview.user.js`](elearning-pdf-preview.user.js) 的完整内容粘贴到编辑器并保存；已装同名脚本时使用管理器的更新检查，或编辑现有脚本，避免重复启用。普通使用者只需这一个文件，无需 Node.js、构建环境或额外资源。内置阅读器使安装文件增大，保存时请稍等。1.2.0 的验证范围和仍未覆盖的环境见[阅读器验证记录](docs/READER-VALIDATION.md)。
 
-## 原版用户脚本：使用
+脚本约 4.85 MiB，已通过 Chromium / Firefox 整合测试，以及 Chrome for Testing 155 + Tampermonkey 5.5.0 的真实手动安装与合成页面验收。仍需真实学校课程试用；普通 URL 安装、升级权限提示和浏览器重启尚未验证，不代表所有浏览器或管理器都已兼容。
 
-- 点击 PDF 文件名，弹窗会读取并显示 PDF。点击页面原有的下载图标仍按网站原行为处理。
-- 点击弹窗的“下载 PDF”才会主动保存文件。点“关闭”、弹窗外部或按 Escape 可返回页面。
-- 如果预览失败，弹窗会给出原因，并提供“打开原文件”和“下载 PDF”入口。
-- Ctrl/⌘ 点击等浏览器常见的新标签页操作仍按原行为处理。
+1.2.0 新增 `GM_getValue`、`GM_setValue` 权限，仅用来保存阅读器选择；如管理器提示权限变更，请核对后确认。未增加网站匹配或联网范围。
+
+脚本元数据使用本仓库 `main` 的更新和下载地址。后续版本可通过脚本管理器检查更新。
+
+## 支持格式与限制
+
+| 文件 | 支持后缀 | 单文件大小上限 |
+| --- | --- | --- |
+| PDF | `.pdf` | 100 MiB |
+| 图片 | `.png`、`.jpg`、`.jpeg`、`.webp` | 20 MiB |
+| 文本与代码 | `.txt`、`.csv`、`.log`、`.json`、`.xml`、`.yaml`、`.yml`、`.c`、`.h`、`.cpp`、`.hpp`、`.py`、`.js`、`.ts`、`.java`、`.css`、`.sql`、`.sh` | 2 MiB |
+
+1 MiB = 1,048,576 字节。图片另检查宽高：单边不得超过 16,384 像素，总像素不得超过 40,000,000。脚本检查文件类型与必要头部，再交由浏览器解码；损坏图像、动画 WebP、登录网页响应及超限文件会显示错误。HTML、SVG、GIF、Office 等未列出的格式不接管。
+
+文本和代码始终作为纯文本显示，不执行脚本或 HTML，不做 Markdown 渲染或语法高亮。自动编码默认 UTF-8，并识别带 BOM 的 UTF-16；乱码或解码失败时可手动选择 UTF-8 或 GB18030。
+
+## 使用
+
+- 点击支持的文件名打开弹窗；页面原有下载图标、Ctrl/⌘ 点击等操作仍按网站或浏览器原行为处理。
+- 图片支持放大、缩小、旋转 90°和适应窗口；文本支持编码选择、自动换行及复制。剪贴板不可用时会选中文本并提示手动复制。
+- 成功读取、校验并准备好预览后，弹窗显示“下载文件”，保存读取到的原始字节；切换文本编码不会改变下载内容。
+- 点“关闭”、弹窗外部或按 Escape 返回页面。关闭、重开和页面离开时会取消请求并释放临时资源。
+- 预览失败时显示原因，并保留“打开原文件”入口；可通过学校原页面继续查看或下载。若文件读取或校验失败，不保证提供可用的本地文件下载。
+- PDF 弹窗顶部可选择“浏览器自带”或“内置 PDF.js”，首次默认浏览器自带。选择会被记住；无法保存时会提示，但当前页面仍可使用。
+- PDF.js 支持翻页、页码跳转、缩放、适合宽度和选中文字；加密文件可输入密码、重试或取消，密码不保存。暂不提供批注、编辑、表单填写、OCR 或全文搜索。
+- 切换阅读器复用已读取的文件，不再请求文件；切入 PDF.js 从第 1 页开始。两种阅读器共用原字节下载。PDF.js 出错或取消密码输入后可手动“切换到浏览器自带”，不会自动改变保存的选择。
 
 预览仍需从网站传输文件数据到浏览器，只是不主动保存到“下载”目录。浏览器自身可能使用缓存。
 
-## 验证
+## 请求与隐私
 
-在项目目录运行：
+脚本仅在 `https://elearning.fudan.edu.cn/` 运行，初始文件请求限于本站文件地址。先使用浏览器请求；仅在请求被浏览器阻止等情况下，尝试已有的 `GM_xmlhttpRequest` 读取回退。Tampermonkey 元数据中的既有 `@connect *` 用于学校文件服务的跨域重定向，本轮保持不变。
+
+浏览器流式读取会检查声明大小和已读取字节数。管理器回退会检查响应头、进度与最终文件大小；能否在完整下载前提前中止取决于管理器是否提供及时的头部和进度事件。全部读取完成后仍会检查最终大小。
+
+文件仅在本机浏览器处理，不上传到第三方预览服务；运行时不加载 CDN、远程脚本或 `@require` 资源。PDF.js 核心、后台处理代码及字体/CMap/解码资源已打包进脚本；不执行 PDF 内的脚本。不修改学校安全策略；若站点禁止后台任务，使用明确的错误提示和手动原生回退。
+
+## 维护与验证
+
+维护者修改 [`userscript/preview.template.js`](userscript/preview.template.js)、同目录的阅读器模块和 [`shared/formats.js`](shared/formats.js)，再生成可安装的单文件，不直接维护生成文件。开发环境需要 Node.js 22.13.0 或以上，推荐 Node.js 24。先安装锁定的开发依赖（PDF.js、esbuild、Playwright）；构建会把阅读器与资源打入脚本，浏览器测试还需准备测试浏览器。以下均为维护者的开发测试准备，普通用户安装单个脚本无需这些依赖。
+
+在新的开发目录中安装依赖并运行：
 
 ```sh
-node --check elearning-pdf-preview.user.js
-node --test tests/userscript.test.cjs
+npm ci
+npm run build
+npm run check
+npm test
 ```
 
-脚本的本地测试覆盖了 Canvas 文件链接的识别、下载按钮排除、普通链接排除及跨域重定向后的读取回退。由于不同课程的文件权限和文件服务可能不同，请在自己有权限访问的 PDF 上验证。
+`build:userscript` 与 `check:userscript` 是对应的专用命令。`npm ci` 安装开发依赖，不会安装测试浏览器；首次运行浏览器检查前另行准备：
+
+```sh
+npx playwright install chromium firefox
+npm run test:userscript
+BROWSER_ENGINE=firefox npm run test:userscript
+npm run test:reader
+BROWSER_ENGINE=firefox npm run test:reader
+```
+
+`npm run test:userscript` 默认运行隔离 Chromium 注入检查，`BROWSER_ENGINE=firefox` 选择 Firefox；也可用 `BROWSER_EXECUTABLE` 指定已有的测试浏览器路径。
+
+`test:reader` 使用有效的普通、中文、加密及损坏合成 PDF 检查阅读器；`test:pdfjs` 单独验证离线运行时和资源清理。准确的版本、结果及真实管理器与注入测试的区别见[阅读器验证记录](docs/READER-VALIDATION.md)。此前 1.1.0 的多格式证据单独保留在[旧版验证记录](docs/VALIDATION.md)，不能视为 1.2.0 全部兼容的证明。
+
+后续计划见[路线图](docs/ROADMAP.md)；本轮范围见[阅读器选择设计](docs/superpowers/specs/2026-10-09-userscript-reader-choice-design.md)。
 
 ## 许可
 
-本项目以 [MIT 许可证](LICENSE)发布。
+本项目代码以 [MIT 许可证](LICENSE)发布。内嵌 PDF.js 及其资源保留各自许可证，完整第三方许可文本随生成脚本一起分发。
 
 ## Star 历史
 

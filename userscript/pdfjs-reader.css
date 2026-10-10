@@ -1,0 +1,26 @@
+/* Essential text-layer rules adapted from pdfjs-dist 6.3.289 web/pdf_viewer.css.
+ * Copyright 2012 Mozilla Foundation; Apache-2.0 (full license bundled above).
+ * Changes: scoped selectors, flattened rules, standalone reader layout. */
+.fdpdf-reader { display:flex; flex-direction:column; height:100%; min-height:0; }
+.fdpdf-pdfjs { height:100%; }
+.fdpdf-pdf-controls { flex:none; background:white; }
+.fdpdf-pdf-controls input { width:4.5em; padding:5px; font:inherit; }
+.fdpdf-overlay button:disabled { opacity:.5; cursor:default; }
+.fdpdf-reader-select { font:inherit; padding:6px; border:1px solid #cbd5e1; border-radius:6px; background:white; color:#1f2937; }
+.fdpdf-preference-warning { color:#92400e; }
+.fdpdf-pdf-scroll { flex:1; min-height:0; overflow:auto; padding:12px; box-sizing:border-box; scrollbar-gutter:stable; }
+.fdpdf-pdf-page { position:relative; margin:0 auto; background:white; box-shadow:0 1px 6px #0003; --total-scale-factor:calc(var(--scale-factor) * var(--user-unit)); --scale-round-x:1px; --scale-round-y:1px; }
+.fdpdf-pdf-page canvas { display:block; }
+.fdpdf-reader-status,.fdpdf-password { margin:16px; padding:16px; background:white; border-radius:8px; }
+.fdpdf-password label,.fdpdf-password button { margin-right:8px; }
+.fdpdf-password input { font:inherit; }
+.fdpdf-text-layer { position:absolute; text-align:initial; inset:0; overflow:clip; opacity:1; line-height:1; letter-spacing:normal; word-spacing:normal; color-scheme:only light; text-size-adjust:none; forced-color-adjust:none; transform-origin:0 0; caret-color:CanvasText; z-index:0; --min-font-size:1; --text-scale-factor:calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv:calc(1 / var(--min-font-size)); }
+.fdpdf-text-layer :is(span,br) { color:transparent; position:absolute; white-space:pre; cursor:text; transform-origin:0% 0%; user-select:text; -webkit-user-select:text; }
+.fdpdf-text-layer > :not(.markedContent),.fdpdf-text-layer .markedContent span:not(.markedContent) { z-index:1; --scale-x:1; --rotate:0deg; font-size:calc(var(--text-scale-factor) * var(--font-height)); transform:rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
+.fdpdf-text-layer .markedContent { display:contents; }
+.fdpdf-text-layer span[role=img] { user-select:none; cursor:default; }
+.fdpdf-text-layer ::selection { background:rgb(0 100 255 / .25); }
+.fdpdf-text-layer br::selection { background:transparent; }
+.fdpdf-text-layer[data-main-rotation="90"] { transform:rotate(90deg) translateY(-100%); }
+.fdpdf-text-layer[data-main-rotation="180"] { transform:rotate(180deg) translate(-100%,-100%); }
+.fdpdf-text-layer[data-main-rotation="270"] { transform:rotate(270deg) translateX(-100%); }
