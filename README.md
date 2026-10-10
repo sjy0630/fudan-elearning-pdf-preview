@@ -2,20 +2,20 @@
 
 在 eLearning 页面点击支持的文件名时，在当前页面弹窗预览 PDF、图片和文本，适用于网站自带预览不可用的情况。本项目与复旦大学及其 eLearning 平台无官方关联。
 
-当前分支 `feature/userscript-reader-choice` 是 **1.2.0 本地未发布候选**，包含图片、文本预览和 PDF 阅读器切换。下方公开安装链接仍指向 `main` 的既有 PDF 版，尚未更新为本候选。
+油猴脚本 **1.2.0** 支持图片、文本预览和 PDF 阅读器切换。下方安装链接跟随 `main` 更新；完整变更见 [1.2.0 说明](docs/releases/userscript-v1.2.0.md)。
 
 ## 选择版本
 
 本项目保留两个版本，分别维护，不合并代码：
 
-- **油猴脚本版（公开 `main` 分支）**：需要 Tampermonkey，按下方步骤安装，在当前页面弹窗预览。本分支单独准备多格式和阅读器切换更新。
+- **油猴脚本版（`main` 分支）**：需要 Tampermonkey，按下方步骤安装，在当前页面弹窗预览。
 - **独立插件版（`feature/standalone-extension` 分支）**：无需 Tampermonkey，自带阅读器。[查看插件版源码与说明](https://github.com/sjy0630/fudan-elearning-pdf-preview/tree/feature/standalone-extension)；Edge 用户可直接[从微软商店安装](https://microsoftedge.microsoft.com/addons/detail/ibgcgppobifaogaodeimafhpmoonioch)。
 
 普通 Edge 用户推荐商店插件版。请选择其中一种使用，不要同时启用同名油猴脚本和插件。
 
 ## 安装
 
-公开版安装步骤（仍为 `main` 的既有 PDF 版）：
+安装步骤：
 
 1. 确认 Chrome 中已安装并启用 Tampermonkey。
 2. 点击[安装用户脚本](https://raw.githubusercontent.com/sjy0630/fudan-elearning-pdf-preview/main/elearning-pdf-preview.user.js)，在 Tampermonkey 的安装页面确认。
@@ -23,13 +23,13 @@
 
 较新的 Chrome 若在 Tampermonkey 中提示“允许运行用户脚本”，请按提示在该扩展的详情页启用对应选项，再刷新课程页面；本次隔离测试的 Chrome 155 / Tampermonkey 5.5.0 需要这一步。
 
-本地候选如需试用，可在 Tampermonkey 中选择“添加新脚本”，把本分支 [`elearning-pdf-preview.user.js`](elearning-pdf-preview.user.js) 的完整内容粘贴到编辑器并保存；已装同名脚本时编辑现有脚本，避免重复启用。普通使用者只需这一个文件，无需 Node.js、构建环境或额外资源。内置阅读器使安装文件增大，保存时请稍等。1.2.0 的验证范围和仍未覆盖的环境见[阅读器验证记录](docs/READER-VALIDATION.md)。
+也可在 Tampermonkey 中选择“添加新脚本”，把 [`elearning-pdf-preview.user.js`](elearning-pdf-preview.user.js) 的完整内容粘贴到编辑器并保存；已装同名脚本时使用管理器的更新检查，或编辑现有脚本，避免重复启用。普通使用者只需这一个文件，无需 Node.js、构建环境或额外资源。内置阅读器使安装文件增大，保存时请稍等。1.2.0 的验证范围和仍未覆盖的环境见[阅读器验证记录](docs/READER-VALIDATION.md)。
 
-最终候选约 4.85 MiB，已通过 Chromium / Firefox 整合测试，以及 Chrome for Testing 155 + Tampermonkey 5.5.0 的真实手动安装与合成页面验收。仍需真实学校课程试用；普通 URL 安装、升级权限提示和浏览器重启尚未验证，不代表所有浏览器或管理器都已兼容。
+脚本约 4.85 MiB，已通过 Chromium / Firefox 整合测试，以及 Chrome for Testing 155 + Tampermonkey 5.5.0 的真实手动安装与合成页面验收。仍需真实学校课程试用；普通 URL 安装、升级权限提示和浏览器重启尚未验证，不代表所有浏览器或管理器都已兼容。
 
 1.2.0 新增 `GM_getValue`、`GM_setValue` 权限，仅用来保存阅读器选择；如管理器提示权限变更，请核对后确认。未增加网站匹配或联网范围。
 
-脚本元数据保留原来的 `main` 更新地址和下载地址。准备这个本地分支不会自动更新已安装脚本，也不代表多格式候选已经发布。
+脚本元数据使用本仓库 `main` 的更新和下载地址。后续版本可通过脚本管理器检查更新。
 
 ## 支持格式与限制
 
