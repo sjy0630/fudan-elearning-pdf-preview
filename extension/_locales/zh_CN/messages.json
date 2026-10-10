@@ -1,0 +1,5 @@
+{
+  "extensionName": { "message": "复旦 eLearning PDF 预览" },
+  "extensionDescription": { "message": "点击 eLearning 的 PDF 文件名即可阅读，免 Tampermonkey，自带阅读器，文件仅在浏览器中处理。" },
+  "actionTitle": { "message": "eLearning PDF 预览" }
+}

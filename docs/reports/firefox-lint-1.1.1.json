@@ -1,0 +1,101 @@
+{
+  "count": 8,
+  "summary": {
+    "errors": 0,
+    "notices": 0,
+    "warnings": 8
+  },
+  "metadata": {
+    "id": "fudan-elearning-pdf-preview@sjy0630",
+    "manifestVersion": 3,
+    "name": "__MSG_extensionName__",
+    "type": 1,
+    "version": "1.1.1",
+    "firefoxMinVersion": "142.0",
+    "firefoxStrictMinVersion": 142,
+    "experimentApiPaths": {},
+    "totalScannedFileSize": 4064419,
+    "emptyFiles": [],
+    "jsLibs": {},
+    "unknownMinifiedFiles": [
+      "vendor/wasm/jbig2_nowasm_fallback.js",
+      "vendor/wasm/openjpeg_nowasm_fallback.js"
+    ]
+  },
+  "errors": [],
+  "notices": [],
+  "warnings": [
+    {
+      "_type": "warning",
+      "code": "DANGEROUS_EVAL",
+      "message": "The Function constructor is eval.",
+      "description": "Evaluation of strings as code can lead to security vulnerabilities and performance issues, even in the most innocuous of circumstances. Please avoid using `eval` and the `Function` constructor when at all possible.",
+      "column": 39,
+      "file": "vendor/pdf.mjs",
+      "line": 1476
+    },
+    {
+      "_type": "warning",
+      "code": "UNSAFE_VAR_ASSIGNMENT",
+      "message": "Unsafe call to activeXDocument.write for argument 0",
+      "description": "Due to both security and performance concerns, this may not be set using dynamic values which have not been adequately sanitized. This can lead to security issues or fairly serious performance degradation.",
+      "column": 3,
+      "file": "vendor/pdf.mjs",
+      "line": 2471
+    },
+    {
+      "_type": "warning",
+      "code": "UNSAFE_VAR_ASSIGNMENT",
+      "message": "Unsafe call to iframeDocument.write for argument 0",
+      "description": "Due to both security and performance concerns, this may not be set using dynamic values which have not been adequately sanitized. This can lead to security issues or fairly serious performance degradation.",
+      "column": 3,
+      "file": "vendor/pdf.mjs",
+      "line": 2491
+    },
+    {
+      "_type": "warning",
+      "code": "UNSAFE_VAR_ASSIGNMENT",
+      "message": "Unsafe call to import for argument 0",
+      "description": "Due to both security and performance concerns, this may not be set using dynamic values which have not been adequately sanitized. This can lead to security issues or fairly serious performance degradation.",
+      "column": 28,
+      "file": "vendor/pdf.mjs",
+      "line": 22958
+    },
+    {
+      "_type": "warning",
+      "code": "DANGEROUS_EVAL",
+      "message": "The Function constructor is eval.",
+      "description": "Evaluation of strings as code can lead to security vulnerabilities and performance issues, even in the most innocuous of circumstances. Please avoid using `eval` and the `Function` constructor when at all possible.",
+      "column": 39,
+      "file": "vendor/pdf.worker.mjs",
+      "line": 1418
+    },
+    {
+      "_type": "warning",
+      "code": "UNSAFE_VAR_ASSIGNMENT",
+      "message": "Unsafe call to activeXDocument.write for argument 0",
+      "description": "Due to both security and performance concerns, this may not be set using dynamic values which have not been adequately sanitized. This can lead to security issues or fairly serious performance degradation.",
+      "column": 3,
+      "file": "vendor/pdf.worker.mjs",
+      "line": 2359
+    },
+    {
+      "_type": "warning",
+      "code": "UNSAFE_VAR_ASSIGNMENT",
+      "message": "Unsafe call to iframeDocument.write for argument 0",
+      "description": "Due to both security and performance concerns, this may not be set using dynamic values which have not been adequately sanitized. This can lead to security issues or fairly serious performance degradation.",
+      "column": 3,
+      "file": "vendor/pdf.worker.mjs",
+      "line": 2379
+    },
+    {
+      "_type": "warning",
+      "code": "UNSAFE_VAR_ASSIGNMENT",
+      "message": "Unsafe call to import for argument 0",
+      "description": "Due to both security and performance concerns, this may not be set using dynamic values which have not been adequately sanitized. This can lead to security issues or fairly serious performance degradation.",
+      "column": 25,
+      "file": "vendor/pdf.worker.mjs",
+      "line": 15548
+    }
+  ]
+}

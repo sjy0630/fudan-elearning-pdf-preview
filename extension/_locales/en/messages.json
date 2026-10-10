@@ -1,0 +1,5 @@
+{
+  "extensionName": { "message": "Fudan eLearning PDF Preview" },
+  "extensionDescription": { "message": "Preview Fudan eLearning PDFs in your browser with a bundled reader. No Tampermonkey or third-party document uploads." },
+  "actionTitle": { "message": "eLearning PDF Preview" }
+}

@@ -1,4 +1,4 @@
-# 复旦 eLearning 文件弹窗预览 · 油猴脚本版
+# 复旦 eLearning 文件预览
 
 在 eLearning 页面点击支持的文件名时，在当前页面弹窗预览 PDF、图片和文本，适用于网站自带预览不可用的情况。本项目与复旦大学及其 eLearning 平台无官方关联。
 
@@ -6,14 +6,16 @@
 
 ## 选择版本
 
-本项目保留两个版本，分别维护，不合并代码：
+本仓库同时提供两个独立安装方式，共用格式校验，不要同时启用：
 
 - **油猴脚本版（`main` 分支）**：需要 Tampermonkey，按下方步骤安装，在当前页面弹窗预览。
-- **独立插件版（`feature/standalone-extension` 分支）**：无需 Tampermonkey，自带阅读器。[查看插件版源码与说明](https://github.com/sjy0630/fudan-elearning-pdf-preview/tree/feature/standalone-extension)；Edge 用户可直接[从微软商店安装](https://microsoftedge.microsoft.com/addons/detail/ibgcgppobifaogaodeimafhpmoonioch)。
+- **独立插件版（`extension/` 目录）**：无需 Tampermonkey，自带阅读器。Edge 用户可直接[从微软商店安装](https://microsoftedge.microsoft.com/addons/detail/ibgcgppobifaogaodeimafhpmoonioch)。[安装与构建说明](docs/EXTENSION.md)。仓库源码为 1.2.0，商店和已发布安装包不会随源码合并自动升级，具体已发布版本以商店及 Releases 为准。
 
 普通 Edge 用户推荐商店插件版。请选择其中一种使用，不要同时启用同名油猴脚本和插件。
 
 ## 安装
+
+以下是油猴脚本版的安装和使用说明；普通 Edge 用户优先使用上方商店入口。
 
 安装步骤：
 

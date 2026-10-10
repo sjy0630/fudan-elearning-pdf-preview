@@ -1,0 +1,30 @@
+:root { color-scheme: light; font: 14px/1.5 system-ui, -apple-system, sans-serif; color: #233047; background: #e9edf3; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+[hidden] { display: none !important; }
+.toolbar { position: sticky; top: 0; z-index: 10; background: #fff; border-bottom: 1px solid #d9e0e9; padding: 12px 20px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; box-shadow: 0 2px 8px #17305008; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 160px; flex: 1; overflow: hidden; }
+h1 { font-size: 15px; font-weight: 600; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.badge { color: #fff; background: #2456a6; padding: 5px 6px; font-size: 10px; font-weight: 800; border-radius: 6px; letter-spacing: .8px; }
+.controls, .actions, .status-actions { display: flex; gap: 7px; align-items: center; }
+button, .button { font: inherit; display: inline-block; color: #233047; background: #fff; border: 1px solid #d4dce7; border-radius: 7px; padding: 6px 10px; text-decoration: none; cursor: pointer; white-space: nowrap; }
+button:hover, .button:hover { background: #eef4ff; border-color: #91add6; }
+button:disabled { opacity: .4; cursor: default; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid #8cb5ff; outline-offset: 2px; }
+.primary, #grant { background: #2456a6; color: #fff; border-color: #2456a6; }
+.primary:hover, #grant:hover { background: #174787; }
+#page { width: 54px; padding: 5px; text-align: center; border: 1px solid #d4dce7; border-radius: 6px; font: inherit; }
+#page-count, #zoom-label { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.divider { height: 20px; width: 1px; background: #d9e0e9; margin: 0 3px; }
+.help { border-radius: 50%; border: 1px solid #d4dce7; text-align: center; width: 25px; text-decoration: none; color: #506078; }
+#workspace { min-height: calc(100vh - 116px); padding: 24px; overflow: auto; }
+#demo-note { background: #edf4ff; color: #244f8a; border-bottom: 1px solid #cddcf2; padding: 10px 20px; font-size: 13px; }
+#paper { position: relative; margin: 0 auto; background: white; box-shadow: 0 3px 20px #1b345025; }
+#canvas { display: block; }
+.textLayer { inset: 0; }
+.status { max-width: 560px; margin: 10vh auto; padding: 32px; background: #fff; border: 1px solid #d9e0e9; border-radius: 14px; }
+.status h2 { margin: 0 0 10px; font-size: 21px; }
+.status p { color: #5a687e; white-space: pre-line; overflow-wrap: anywhere; }
+footer { padding: 14px; text-align: center; color: #66758b; font-size: 12px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (max-width: 760px) { .toolbar { padding: 10px; gap: 10px; } .brand { flex-basis: 100%; } .controls { flex-wrap: wrap; } #workspace { padding: 12px; } }

@@ -1,0 +1,11 @@
+body { display: flex; flex-direction: column; height: 100vh; }
+#workspace { flex: 1; min-height: 0; }
+#image-frame { position: relative; margin: 0 auto; }
+#image { position: absolute; left: 50%; top: 50%; max-width: none; }
+#text { margin: 0; background: white; padding: 24px; border: 1px solid #d9e0e9; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.7 ui-monospace, monospace; tab-size: 4; }
+#text.no-wrap { white-space: pre; overflow-wrap: normal; }
+select { max-width: 220px; padding: 7px; border: 1px solid #d4dce7; border-radius: 7px; font: inherit; }
+select:focus-visible, pre:focus-visible { outline: 3px solid #8cb5ff; outline-offset: 2px; }
+#copy-status { max-width: 240px; font-size: 12px; }
+.status { margin: 5vh auto; }
+@media(max-width:760px) { .controls, .actions { flex-wrap: wrap; } select { max-width: 190px; } #text { padding: 12px; } }
