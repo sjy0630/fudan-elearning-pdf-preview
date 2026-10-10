@@ -1,0 +1,75 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { chromium, firefox } from 'playwright';
+const script = await readFile(new URL('../elearning-pdf-preview.user.js',import.meta.url),'utf8');
+const engine = process.env.BROWSER_ENGINE === 'firefox' ? firefox : chromium;
+const browser = await engine.launch({headless:true,executablePath:process.env.BROWSER_EXECUTABLE || undefined});
+const context = await browser.newContext({acceptDownloads:true});
+const page = await context.newPage();
+let response = {body:'hello',contentType:'text/plain'};
+const errors=[]; page.on('pageerror',e=>errors.push(e.message));
+await context.route('**/*', route => route.request().url().includes('/files/42/download') ? route.fulfill(response) : route.fulfill({contentType:'text/html',body:'<a id="file" href="/files/42?verifier=token">sample.txt</a><a id="native" download href="/files/42/download">download</a>'}));
+await page.goto('https://elearning.fudan.edu.cn/courses/1');
+await page.evaluate(() => { window.revoked=[]; const revoke=URL.revokeObjectURL; URL.revokeObjectURL=u=>{window.revoked.push(u);revoke(u);}; });
+await page.addScriptTag({content:script});
+const open = async (name,body,contentType) => { response={body,contentType}; await page.locator('#file').evaluate((a,n)=>a.textContent=n,name); await page.locator('#file').click(); };
+const ready = () => page.waitForFunction(()=>document.querySelector('.fdpdf-status')?.hidden);
+const close = () => page.locator('.fdpdf-close').click();
+try {
+  await open('sample.txt','中文 <script>window.pwned=1</script>','text/plain'); await ready();
+  assert.equal(await page.getByText('打开原文件',{exact:true}).isVisible(),true);
+  assert.equal(await page.locator('.fdpdf-text').textContent(),'中文 <script>window.pwned=1</script>'); assert.equal(await page.evaluate(()=>window.pwned),undefined);
+  await page.locator('[data-action=wrap]').click(); assert.equal(await page.locator('[data-action=wrap]').getAttribute('aria-pressed'),'false');
+  await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('denied');}}}));
+  await page.locator('[data-action=copy]').click(); assert.match(await page.locator('.fdpdf-feedback').textContent(),/手动/);
+  const pending=page.waitForEvent('download'); await page.locator('.fdpdf-download').click(); const download=await pending;
+  const chunks=[];for await(const chunk of await download.createReadStream())chunks.push(chunk);assert.equal(Buffer.concat(chunks).toString(),'中文 <script>window.pwned=1</script>');
+  await close(); assert.equal(await page.evaluate(()=>document.activeElement.id),'file');
+  await open('sample.txt',Buffer.from([0xd6,0xd0,0xce,0xc4]),'text/plain');
+  await page.waitForFunction(()=>document.querySelector('.fdpdf-status')?.textContent.includes('编码'));
+  assert.equal(await page.locator('.fdpdf-download').isVisible(),false);
+  await page.locator('.fdpdf-encoding').selectOption('gb18030');await ready();assert.equal(await page.locator('.fdpdf-text').textContent(),'中文');
+  const recoveredDownload=page.waitForEvent('download');await page.locator('.fdpdf-download').click();
+  const recoveredChunks=[];for await(const chunk of await (await recoveredDownload).createReadStream())recoveredChunks.push(chunk);
+  assert.deepEqual(Buffer.concat(recoveredChunks),Buffer.from([0xd6,0xd0,0xce,0xc4]));
+  await page.locator('.fdpdf-encoding').selectOption('utf-8');assert.equal(await page.locator('.fdpdf-download').isVisible(),false);await close();
+  await open('sample.txt',Buffer.from([255,254,0x2d,0x4e,0x87,0x65]),'text/plain');await ready();assert.equal(await page.locator('.fdpdf-text').textContent(),'中文');await close();
+  const images=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=240;c.height=120;const x=c.getContext('2d');x.fillStyle='blue';x.fillRect(0,0,240,120);return ['png','jpeg','webp'].map(f=>[f,c.toDataURL('image/'+f).split(',')[1]]);});
+  for(const [format,base64] of images){
+    await open('sample.'+format,Buffer.from(base64,'base64'),'image/'+format);await ready();
+    assert.equal(await page.locator('.fdpdf-image').evaluate(i=>i.naturalWidth),240);
+    await page.locator('[data-action=rotate]').click();assert.equal(await page.locator('.fdpdf-image').getAttribute('data-rotation'),'90');
+    assert.deepEqual(await page.locator('.fdpdf-image-stage').evaluate(s=>[s.clientWidth,s.clientHeight]),[120,240]);
+    const before=await page.locator('.fdpdf-image').getAttribute('style');await page.locator('[data-action=zoom-out]').click();
+    assert.notEqual(await page.locator('.fdpdf-image').getAttribute('style'),before);
+    await page.locator('.fdpdf-body').evaluate(b=>{b.style.width='100px';b.style.maxHeight='150px';});
+    await page.locator('[data-action=fit]').click();
+    assert.equal(await page.locator('.fdpdf-image-stage').evaluate(s=>s.clientWidth<=s.parentElement.clientWidth && s.clientHeight<=s.parentElement.clientHeight),true);
+    assert.deepEqual(await page.locator('.fdpdf-image-stage').evaluate(s=>[s.clientWidth,s.clientHeight]),[75,150]);
+    await page.locator('.fdpdf-body').evaluate(b=>{b.style.width='';b.style.maxHeight='';});await close();
+  }
+  await open('broken.png',Buffer.from(images[0][1],'base64').subarray(0,33),'image/png');await page.waitForFunction(()=>document.querySelector('.fdpdf-status')?.textContent.includes('无法'));assert.equal(await page.locator('.fdpdf-download').isVisible(),false);await close();
+  await open('sample.pdf','%PDF-1.7\n%%EOF','application/octet-stream');await page.locator('iframe.fdpdf-viewer').waitFor();assert.match(await page.locator('iframe.fdpdf-viewer').getAttribute('src'),/^blob:/);await close();
+  assert.ok(await page.evaluate(()=>window.revoked.length>=8));assert.equal(await page.evaluate(()=>document.body.style.overflow),'');assert.equal(await page.locator('#native').getAttribute('download'),'');
+  await open('login.txt','<html>Login</html>','text/html');
+  await page.waitForFunction(()=>document.querySelector('.fdpdf-status').textContent.includes('登录'));
+  assert.equal(await page.locator('.fdpdf-download').isVisible(),false);await close();
+  // Mock only the manager transport: the generated router, validation and dialog run unchanged.
+  await page.evaluate(()=>{
+    window.fetch=async()=>{throw new TypeError('simulated CORS');};
+    window.gmCalls=[];window.gmAborts=0;
+    window.GM_xmlhttpRequest=options=>{window.gmCalls.push(options);return{abort(){window.gmAborts++;options.onabort();}};};
+  });
+  await open('old.txt','ignored','text/plain');await page.waitForFunction(()=>window.gmCalls.length===1);await close();
+  await open('new.txt','ignored','text/plain');await page.waitForFunction(()=>window.gmCalls.length===2);
+  await page.evaluate(()=>{window.gmCalls[0].onload({status:200,response:new Blob(['STALE'],{type:'text/plain'})});window.gmCalls[1].onload({status:200,response:new Blob(['current'],{type:'text/plain'})});});
+  await ready();assert.equal(await page.locator('.fdpdf-text').textContent(),'current');assert.equal(await page.evaluate(()=>window.gmAborts),1);
+  await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copied=text;}}}));
+  await page.locator('[data-action=copy]').click();assert.equal(await page.evaluate(()=>window.copied),'current');
+  await page.evaluate(()=>window.dispatchEvent(new Event('pagehide')));assert.equal(await page.locator('.fdpdf-overlay').isVisible(),false);
+  assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
+  await page.evaluate(()=>{const native=window.setTimeout;window.setTimeout=(callback,ms,...args)=>native(callback,ms===60000?20:ms,...args);});
+  await open('timeout.txt','ignored','text/plain');await page.waitForFunction(()=>document.querySelector('.fdpdf-status').textContent.includes('超时'));
+  assert.equal(await page.locator('.fdpdf-download').isVisible(),false);assert.equal(await page.locator('.fdpdf-text').textContent(),'');await close();
+  assert.deepEqual(errors,[]);console.log(`PASS ${process.env.BROWSER_ENGINE || 'chromium'} ${browser.version()}: text safety, raw download, encoding recovery, image controls, PDF blob iframe routing, original action, clipboard success/fallback, mocked GM stale callbacks, pagehide, timeout cleanup (injected script; not a Tampermonkey installation)`);
+}finally{await browser.close();}
