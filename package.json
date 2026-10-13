@@ -3,7 +3,9 @@
   "version": "1.2.0",
   "private": true,
   "license": "MIT",
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "build": "node scripts/build-userscript.mjs && node scripts/build.mjs",
     "build:extension": "node scripts/build.mjs",
@@ -21,6 +23,7 @@
     "test:files": "node scripts/smoke-files.mjs"
   },
   "dependencies": {
+    "pako": "3.0.2",
     "pdfjs-dist": "6.3.289"
   },
   "devDependencies": {
