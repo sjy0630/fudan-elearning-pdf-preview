@@ -1,4 +1,4 @@
-import { DOMParser, XMLSerializer, normalizeLineEndings } from '@xmldom/xmldom';
+import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import { expandDocxZip } from './docx-zip.mjs';
 import { DOCX_LIMITS } from './docx-policy.mjs';
 
@@ -15,6 +15,7 @@ const XML_ENTITIES = new Map([['amp', '&'], ['lt', '<'], ['gt', '>'], ['quot', '
 // XML 1.0 (Fifth Edition) NameStartChar/NameChar with ':' excluded for NCName.
 const XML_NAME_START = 'A-Z_a-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD\\u{10000}-\\u{EFFFF}';
 const XML_NCNAME = new RegExp('^[' + XML_NAME_START + '][' + XML_NAME_START + '0-9.\\-\\u00B7\\u0300-\\u036F\\u203F-\\u2040]*$', 'u');
+const normalizeXml10LineEndings = source => source.replace(/\r\n?/g, '\n');
 const fail = reason => { throw new Error(`OOXML ${reason}。`); };
 const children = element => {
   const result = [];
@@ -286,13 +287,13 @@ function inspectXml(source, budget) {
 }
 
 function parseXml(bytes, budget) {
-  // Use the parser's public normalization before lexical namespace comparison,
-  // so CRLF and other normalized line endings cannot hide duplicate attributes.
-  const source = normalizeLineEndings(decodeXml(bytes));
+  // XML 1.0 normalizes only CRLF/CR. Both gates must agree on namespace values
+  // while preserving other legal Unicode characters in document content.
+  const source = normalizeXml10LineEndings(decodeXml(bytes));
   inspectXml(source, budget);
   let document;
   try {
-    document = new DOMParser({ onError: (level, message) => { throw new Error(`${level}: ${message}`); } }).parseFromString(source, 'application/xml');
+    document = new DOMParser({ normalizeLineEndings: normalizeXml10LineEndings, onError: (level, message) => { throw new Error(`${level}: ${message}`); } }).parseFromString(source, 'application/xml');
   } catch { fail('XML 解析无效'); }
   const pending = [document];
   while (pending.length) {

@@ -468,3 +468,28 @@ test('relationship IDs are XML 1.0 NCNames with legal Unicode starts and continu
     assert.equal(result.relationships.get('_rels/.rels')[0].id, id);
   }
 });
+
+test('XML 1.0 preserves legal NEL, line separator and paragraph separator in text, CDATA and attributes', async () => {
+  const text = 'a\u0085b\u2028c\u2029d中文';
+  const document = doc(`<w:p note="${text}"><w:r><w:t>${text}</w:t><w:t><![CDATA[${text}]]></w:t></w:r></w:p>`);
+  const result = await verify({ document });
+  const normalized = result.xmlParts.get('word/document.xml');
+  assert.equal(/note="([^"]*)"/.exec(normalized)[1], text);
+  assert.ok(normalized.includes(`<w:t>${text}</w:t>`));
+  assert.ok(normalized.includes(`<![CDATA[${text}]]>`));
+  assert.deepEqual(result.parts.get('word/document.xml'), new Uint8Array(Buffer.from(document)));
+});
+
+test('XML 1.0 normalizes CRLF and bare CR once while preserving CR followed by NEL', async () => {
+  const source = 'a\r\nb\rc\r\u0085d\n';
+  const text = 'a\nb\nc\n\u0085d\n';
+  const result = await verify({ document: doc(`<w:p note="${source}"><w:r><w:t>${source}</w:t><w:t><![CDATA[${source}]]></w:t></w:r></w:p>`) });
+  const normalized = result.xmlParts.get('word/document.xml');
+  assert.equal(/note="([^"]*)"/.exec(normalized)[1], 'a b c \u0085d ');
+  assert.ok(normalized.includes(`<w:t>${text}</w:t>`));
+  assert.ok(normalized.includes(`<![CDATA[${text}]]>`));
+  assert.ok(!normalized.includes('\r'));
+  const references = await verify({ document: doc('<w:p note="&#133;&#8232;&#8233;"><w:r><w:t>&#133;&#8232;&#8233;</w:t></w:r></w:p>') });
+  assert.ok(references.xmlParts.get('word/document.xml').includes('note="\u0085\u2028\u2029"'));
+  assert.ok(references.xmlParts.get('word/document.xml').includes('<w:t>\u0085\u2028\u2029</w:t>'));
+});
