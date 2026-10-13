@@ -493,3 +493,57 @@ test('XML 1.0 normalizes CRLF and bare CR once while preserving CR followed by N
   assert.ok(references.xmlParts.get('word/document.xml').includes('note="\u0085\u2028\u2029"'));
   assert.ok(references.xmlParts.get('word/document.xml').includes('<w:t>\u0085\u2028\u2029</w:t>'));
 });
+
+test('every XML part rejects non-XML-S text and any CDATA outside its single root', async () => {
+  const m = await api();
+  for (const name of ['[Content_Types].xml', '_rels/.rels', 'word/document.xml', 'custom.data']) {
+    for (const suffix of ['\u00a0', '\u2028', '<![CDATA[test]]>', '<![CDATA[]]>']) {
+      const files = minimal({ extra: { 'custom.data': '<custom/>' }, contentTypes: types('<Default Extension="data" ContentType="application/example+xml"/>') });
+      files.set(name, Buffer.concat([files.get(name), Buffer.from(suffix)]));
+      const bytes = await zip(files);
+      assert.throws(() => m.verifyDocxPackage(bytes), /XML/, `${name}: ${JSON.stringify(suffix)}`);
+    }
+  }
+  const files = minimal();
+  for (const [name, source] of files) files.set(name, Buffer.from(` \t<!-- before --><?note before?>\r\n${source}\n<?note after?><!-- after -->\t `));
+  assert.ok(m.verifyDocxPackage(await zip(files)).parts.has('word/document.xml'));
+});
+
+test('unquoted markup requires XML-S boundaries, valid QNames and exactly connected single slash-close', async () => {
+  const m = await api();
+  for (const body of ['<w:p\u0080/>', '<w:p/ >', '<w:p/\t>', '<w:p//>', '<w:p a="1"b="2"/>', '<w:p\u0080xmlns:x="http://www.w3.org/XML/1998/namespace" x:lang="zh"/>']) {
+    const bytes = await zip(minimal({ document: doc(body) }));
+    assert.throws(() => m.verifyDocxPackage(bytes), /XML/, JSON.stringify(body));
+  }
+  for (const body of ['<w:p />', '<w:p a="1"/>', '<w:p\ta = "1" />', "<w:p \r\n a='1'/>", '<w:p a="1"></w:p >']) {
+    assert.ok((await verify({ document: doc(body) })).xmlParts.has('word/document.xml'));
+  }
+});
+
+test('Types and Relationships allow only actual XML-S schema text', async () => {
+  const m = await api();
+  for (const character of ['\u00a0', '\u2028', '\u2029']) {
+    for (const options of [{ contentTypes: types().replace('</Types>', `${character}</Types>`) }, { rootRels: rels(`${relation('r1', `${R}officeDocument`, 'word/document.xml')}${character}`) }]) {
+      const bytes = await zip(minimal(options));
+      assert.throws(() => m.verifyDocxPackage(bytes), /内容类型|关系/, JSON.stringify(character));
+    }
+  }
+  assert.ok((await verify({ contentTypes: types().replace('</Types>', ' \t\r\n</Types>'), rootRels: rels(`${relation('r1', `${R}officeDocument`, 'word/document.xml')} \t\r\n`) })).parts.has('word/document.xml'));
+});
+
+test('Unicode NCName characters that JavaScript treats as whitespace remain distinct markup names', async () => {
+  const result = await verify({ document: doc('<w:p a="1" a\u1680="2" a\ufeff="3"><中\u1680元素 xmlns="urn:中文"/></w:p>') });
+  const normalized = result.xmlParts.get('word/document.xml');
+  assert.ok(normalized.includes('a="1"'));
+  assert.ok(normalized.includes('a\u1680="2"'));
+  assert.ok(normalized.includes('a\ufeff="3"'));
+  assert.ok(normalized.includes('中\u1680元素'));
+});
+
+test('NCName validation consumes the entire decoded relationship ID including a final newline', async () => {
+  const m = await api();
+  for (const id of ['id&#10;', 'id&#13;', 'id&#8232;', 'id&#8233;']) {
+    const bytes = await zip(minimal({ rootRels: rels(relation(id, `${R}officeDocument`, 'word/document.xml')) }));
+    assert.throws(() => m.verifyDocxPackage(bytes), /关系.*ID/, id);
+  }
+});

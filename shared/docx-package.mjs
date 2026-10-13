@@ -15,6 +15,12 @@ const XML_ENTITIES = new Map([['amp', '&'], ['lt', '<'], ['gt', '>'], ['quot', '
 // XML 1.0 (Fifth Edition) NameStartChar/NameChar with ':' excluded for NCName.
 const XML_NAME_START = 'A-Z_a-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD\\u{10000}-\\u{EFFFF}';
 const XML_NCNAME = new RegExp('^[' + XML_NAME_START + '][' + XML_NAME_START + '0-9.\\-\\u00B7\\u0300-\\u036F\\u203F-\\u2040]*$', 'u');
+const XML_S_ONLY = /^[ \t\r\n]*$/;
+const xmlSpace = character => character === ' ' || character === '\t' || character === '\r' || character === '\n';
+const xmlQName = name => {
+  const colon = name.indexOf(':');
+  return colon < 0 ? XML_NCNAME.test(name) : XML_NCNAME.test(name.slice(0, colon)) && XML_NCNAME.test(name.slice(colon + 1));
+};
 const normalizeXml10LineEndings = source => source.replace(/\r\n?/g, '\n');
 const fail = reason => { throw new Error(`OOXML ${reason}。`); };
 const children = element => {
@@ -63,7 +69,7 @@ function schemaAttributes(element, allowed, context) {
     if (attr.namespaceURI !== XMLNS && (attr.namespaceURI || !allowed.includes(attr.name))) fail(`${context}属性无效`);
   }
   for (let child = element.firstChild; child; child = child.nextSibling) {
-    if ((child.nodeType === 3 || child.nodeType === 4) && /\S/.test(child.data)) fail(`${context}内容无效`);
+    if ((child.nodeType === 3 || child.nodeType === 4) && !XML_S_ONLY.test(child.data)) fail(`${context}内容无效`);
   }
 }
 
@@ -166,7 +172,8 @@ function xmlReferences(source) {
   }
 }
 
-function inspectText(text) {
+function inspectText(text, outsideRoot = false) {
+  if (outsideRoot && !XML_S_ONLY.test(text)) fail('XML 根元素外含非法文本');
   if (text.includes(']]>')) fail('XML 文本含非法 CDATA 结束标记');
   xmlReferences(text);
 }
@@ -185,16 +192,23 @@ function inspectAttributes(tag, namespaces) {
   const attributes = [];
   const rawNames = new Set();
   let cursor = 1;
-  while (cursor < tag.length && !/[\s/>]/.test(tag[cursor])) cursor++;
+  while (cursor < tag.length && !xmlSpace(tag[cursor]) && tag[cursor] !== '/' && tag[cursor] !== '>') cursor++;
+  if (!xmlQName(tag.slice(1, cursor))) fail('XML 标签名称无效');
   while (cursor < tag.length) {
-    while (/\s/.test(tag[cursor])) cursor++;
-    if (tag[cursor] === '/' || tag[cursor] === '>') break;
+    const boundary = cursor;
+    while (xmlSpace(tag[cursor])) cursor++;
+    if (tag[cursor] === '>') break;
+    if (tag[cursor] === '/') {
+      if (cursor !== tag.length - 2 || tag[cursor + 1] !== '>') fail('XML 自闭合标签格式无效');
+      break;
+    }
+    if (cursor === boundary) fail('XML 属性之间必须有 XML 空白');
     const start = cursor;
-    while (cursor < tag.length && !/[\s=/>]/.test(tag[cursor])) cursor++;
+    while (cursor < tag.length && !xmlSpace(tag[cursor]) && !'=/>'.includes(tag[cursor])) cursor++;
     const name = tag.slice(start, cursor);
-    while (/\s/.test(tag[cursor])) cursor++;
-    if (!name || tag[cursor++] !== '=') fail('XML 属性格式无效');
-    while (/\s/.test(tag[cursor])) cursor++;
+    while (xmlSpace(tag[cursor])) cursor++;
+    if (!xmlQName(name) || tag[cursor++] !== '=') fail('XML 属性名称或格式无效');
+    while (xmlSpace(tag[cursor])) cursor++;
     const quote = tag[cursor++];
     if (quote !== '"' && quote !== "'") fail('XML 属性缺少引号');
     const end = tag.indexOf(quote, cursor);
@@ -235,12 +249,13 @@ function restoreNamespaces(changes, namespaces) {
 // This linear gate runs before the parser can build any attacker-controlled tree.
 function inspectXml(source, budget) {
   let depth = 0;
+  let rootSeen = false;
   const namespaces = new Map([['xml', XML]]);
   const scopes = [];
   for (let cursor = 0; cursor < source.length;) {
     const start = source.indexOf('<', cursor);
-    if (start < 0) { inspectText(source.slice(cursor)); break; }
-    inspectText(source.slice(cursor, start));
+    if (start < 0) { inspectText(source.slice(cursor), depth === 0); break; }
+    inspectText(source.slice(cursor, start), depth === 0);
     let end;
     if (source.startsWith('<!--', start)) {
       end = source.indexOf('-->', start + 4);
@@ -249,6 +264,7 @@ function inspectXml(source, budget) {
       continue;
     }
     if (source.startsWith('<![CDATA[', start)) {
+      if (!depth) fail('XML 根元素外不能有 CDATA');
       end = source.indexOf(']]>', start + 9);
       if (end < 0) fail('XML CDATA 截断');
       cursor = end + 3;
@@ -272,13 +288,20 @@ function inspectXml(source, budget) {
     const tag = source.slice(start, end + 1);
     xmlReferences(tag);
     if (source[start + 1] === '/') {
+      let nameEnd = tag.length - 1;
+      while (nameEnd > 2 && xmlSpace(tag[nameEnd - 1])) nameEnd--;
+      if (!xmlQName(tag.slice(2, nameEnd))) fail('XML 结束标签名称或格式无效');
       if (--depth < 0) fail('XML 标签嵌套无效');
       restoreNamespaces(scopes.pop(), namespaces);
     } else {
       if (++budget.tags > DOCX_LIMITS.nodes) fail('XML 标签数超过限制（50000）');
       if (depth + 1 > 256) fail('XML 嵌套超过限制（256）');
+      if (!depth) {
+        if (rootSeen) fail('XML 必须只有一个根元素');
+        rootSeen = true;
+      }
       const changes = inspectAttributes(tag, namespaces);
-      if (!/\/\s*>$/.test(tag)) { depth++; scopes.push(changes); }
+      if (!tag.endsWith('/>')) { depth++; scopes.push(changes); }
       else restoreNamespaces(changes, namespaces);
     }
     cursor = end + 1;
