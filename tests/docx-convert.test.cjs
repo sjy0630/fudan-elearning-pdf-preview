@@ -229,6 +229,62 @@ test('external images and unsupported images are inert placeholders and warnings
   assert.ok(result.warnings.some(w => /外部图片/.test(w))); assert.ok(result.warnings.every(w => !/secret|script/.test(w)));
 });
 
+test('DrawingML link-only references to verified internal images become inert placeholders', async () => {
+  const result = await convertVariant((parts, h) => h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const image = doc.getElementsByTagName('a:blip')[0], id = image.getAttribute('r:embed');
+    image.removeAttribute('r:embed'); image.setAttribute('r:link', id);
+  }));
+  assert.equal(result.images.length, 1); assert.deepEqual(result.images[0].bytes, new Uint8Array(fixture('mountain-landscape.jpg')));
+  assert.match(result.html, /图片暂不支持预览/); assert.ok(result.warnings.some(message => /部分图片暂不支持/.test(message)));
+});
+
+test('VML link-only image references use the same inert placeholder policy', async () => {
+  const result = await convertVariant((parts, h) => h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const drawing = doc.getElementsByTagName('w:drawing')[0], id = drawing.getElementsByTagName('a:blip')[0].getAttribute('r:embed');
+    const pict = doc.createElementNS(W, 'w:pict'), shape = doc.createElementNS('urn:schemas-microsoft-com:vml', 'v:shape');
+    const image = doc.createElementNS('urn:schemas-microsoft-com:vml', 'v:imagedata');
+    image.setAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'r:link', id);
+    shape.appendChild(image); pict.appendChild(shape); drawing.parentNode.replaceChild(pict, drawing);
+  }));
+  assert.equal(result.images.length, 1); assert.match(result.html, /图片暂不支持预览/);
+  assert.ok(result.warnings.some(message => /部分图片暂不支持/.test(message)));
+});
+
+test('link-only image references remain subject to the 200-reference budget', async () => {
+  const h = await helpers(), parts = await h.readFixtureParts(); let verified = 0;
+  h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const drawing = doc.getElementsByTagName('w:drawing')[0], image = drawing.getElementsByTagName('a:blip')[0];
+    const id = image.getAttribute('r:embed'); image.removeAttribute('r:embed'); image.setAttribute('r:link', id);
+    const paragraph = doc.getElementsByTagName('w:p')[0];
+    for (let i = 0; i < 199; i++) { const run = doc.createElementNS(W, 'w:r'); run.appendChild(drawing.cloneNode(true)); paragraph.appendChild(run); }
+  });
+  await assert.rejects((await api()).convertDocx(h.zipFixtureParts(parts), { onVerified() { verified++; } }), /图片.*200/);
+  assert.equal(verified, 1);
+});
+
+test('numeric CR references preserve text and image alt semantics while CDATA literal CR follows XML 1.0', async () => {
+  const h = await helpers(), parts = await h.readFixtureParts();
+  h.editFixtureXml(parts, 'word/document.xml', doc => {
+    doc.getElementsByTagName('w:t')[2].textContent = '__CR_TEXT__';
+    const cdata = doc.getElementsByTagName('w:t')[3]; cdata.textContent = ''; cdata.appendChild(doc.createCDATASection('__CR_CDATA__'));
+    doc.getElementsByTagName('wp:docPr')[0].setAttribute('descr', '__CR_ALT__');
+  });
+  const source = Buffer.from(parts.get('word/document.xml')).toString()
+    .replace('__CR_TEXT__', '文字甲&#13;文字乙&#10;文字丙')
+    .replace('__CR_ALT__', '图甲&#13;图乙')
+    .replace('__CR_CDATA__', '甲\r\n乙\r丙&#13;尾');
+  parts.set('word/document.xml', Buffer.from(source));
+  const bytes = h.zipFixtureParts(parts), original = bytes.slice();
+  const result = await (await api()).convertDocx(bytes);
+  const { DOMParser } = await import('@xmldom/xmldom');
+  const parsed = new DOMParser({ normalizeLineEndings: value => value.replace(/\r\n?/g, '\n') }).parseFromString(`<div>${result.html}</div>`, 'text/html');
+  const paragraph = [...parsed.getElementsByTagName('p')].find(node => node.textContent.startsWith('文字甲'));
+  assert.equal(paragraph.textContent, '文字甲\r文字乙\n文字丙');
+  assert.equal(parsed.getElementsByTagName('strong')[0].textContent, '甲\n乙\n丙&#13;尾');
+  assert.equal(parsed.getElementsByTagName('img')[0].getAttribute('alt'), '图甲\r图乙');
+  assert.deepEqual(bytes, original); assert.deepEqual(parts.get('word/document.xml'), Buffer.from(source));
+});
+
 test('unsafe embedded style maps are ignored and external hyperlinks retain text with warnings', async () => {
   const result = await convertVariant((parts, h) => {
     parts.set('mammoth/style-map', Buffer.from("p => script:fresh"));

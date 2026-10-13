@@ -17,7 +17,9 @@ const decodeName = name => { for (let i = 0; i < 16 && /%[0-9a-f]{2}/i.test(name
 let sequence = 0;
 
 function parseCopy(source) {
-  return new DOMParser({ normalizeLineEndings: value => value.replace(/\r\n?/g, '\n'), onError() { fail('转换副本 XML 无效'); } }).parseFromString(source, 'application/xml');
+  // The verifier has already performed XML 1.0 normalization. Any CR now in
+  // its serialized text is a semantic character reference, not a line ending.
+  return new DOMParser({ normalizeLineEndings: value => value, onError() { fail('转换副本 XML 无效'); } }).parseFromString(source, 'application/xml');
 }
 
 function contentTypeLookup(document) {
@@ -130,7 +132,10 @@ function conversionCopy(verified, warn) {
       const image = (/\/drawingml\/(?:2006\/)?main$/.test(node.namespaceURI || '') && node.localName === 'blip') || (node.namespaceURI === 'urn:schemas-microsoft-com:vml' && node.localName === 'imagedata');
       if (image) {
         if (++imageReferences > DOCX_LIMITS.images) fail('图片引用数超过限制（200）');
-        const id = node.getAttributeNS(R.slice(0, -1), 'embed') || node.getAttributeNS(RS.slice(0, -1), 'embed') || node.getAttributeNS(R.slice(0, -1), 'link') || node.getAttributeNS(RS.slice(0, -1), 'link') || node.getAttributeNS(R.slice(0, -1), 'id') || node.getAttributeNS(RS.slice(0, -1), 'id');
+        // Link-only images take Mammoth's external-file path even when their
+        // relationship target is internal. Only embedded references are used.
+        const attribute = node.localName === 'blip' ? 'embed' : 'id';
+        const id = node.getAttributeNS(R.slice(0, -1), attribute) || node.getAttributeNS(RS.slice(0, -1), attribute);
         const entry = relationships.get(id);
         if (!entry || entry.external || kind(entry.type) !== 'image' || !['image/png', 'image/jpeg', 'image/webp'].includes(lookup.verified(entry.target))) {
           warn(IMAGE_WARNING);
@@ -155,9 +160,9 @@ function conversionCopy(verified, warn) {
   for (const [name, original] of verified.parts) {
     let bytes = original;
     if (documents.has(name)) {
-      // Old XML parsers normalize literal NEL/LS as line endings. References
-      // preserve these legal XML 1.0 characters in text and attribute values.
-      bytes = encoder.encode(serializer.serializeToString(documents.get(name).documentElement).replace(/[\u0085\u2028\u2029]/g, char => `&#${char.codePointAt(0)};`));
+      // Protect semantic CR and legal NEL/LS/PS from downstream line-ending
+      // normalization using references in the separate conversion archive.
+      bytes = encoder.encode(serializer.serializeToString(documents.get(name).documentElement).replace(/[\r\u0085\u2028\u2029]/g, char => `&#${char.codePointAt(0)};`));
       if (bytes.byteLength > DOCX_LIMITS.xmlBytes) fail('转换副本 XML 大小超过限制（4 MiB）');
     }
     total += bytes.byteLength;
@@ -209,8 +214,11 @@ export async function convertDocx(input, { idPrefix, onVerified } = {}) {
   } catch { fail('文档转换失败'); }
   // Mammoth deliberately recovers image callback errors; limits must stay fatal.
   if (imageError) throw imageError;
-  if (encoder.encode(result.value).byteLength > DOCX_LIMITS.htmlBytes) fail('转换 HTML 大小超过限制（4 MiB）');
-  checkOutputNodes(result.value);
+  // HTML parsers also normalize literal CR. A reference keeps the semantic CR
+  // through the later sanitizer's parse without interpreting any user markup.
+  const html = result.value.replace(/\r/g, '&#13;');
+  if (encoder.encode(html).byteLength > DOCX_LIMITS.htmlBytes) fail('转换 HTML 大小超过限制（4 MiB）');
+  checkOutputNodes(html);
   if (result.messages.length) warn(CONVERSION_WARNING);
-  return { html: result.value, images, warnings };
+  return { html, images, warnings };
 }
