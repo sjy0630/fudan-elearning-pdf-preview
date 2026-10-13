@@ -24,10 +24,13 @@
   },
   "dependencies": {
     "@xmldom/xmldom": "0.9.12",
+    "dompurify": "3.4.17",
+    "mammoth": "1.13.0",
     "pako": "3.0.2",
     "pdfjs-dist": "6.3.289"
   },
   "devDependencies": {
+    "docx": "9.10.0",
     "esbuild": "0.25.12",
     "fflate": "0.8.3",
     "playwright": "1.63.0",

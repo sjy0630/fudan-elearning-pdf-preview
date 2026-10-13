@@ -1,0 +1,20 @@
+{
+  "license": "MIT",
+  "generator": "scripts/docx-fixtures.mjs / docx 9.10.0",
+  "baseline": "normal.docx",
+  "deterministicMetadata": "2026-01-01T00:00:00Z",
+  "files": {
+    "normal.docx": {
+      "bytes": 17073,
+      "sha256": "ee7343d1ec559d623ca50a2efb6ebd8898a58021dd7d80a56fb3a8dd38a707b1"
+    },
+    "learning-chart.png": {
+      "bytes": 1365,
+      "sha256": "ada849083c322eecc4785c9298cc26d608d40641514fce8fb715f5c15535c917"
+    },
+    "mountain-landscape.jpg": {
+      "bytes": 3956,
+      "sha256": "9eb6f7b656d8e22d10f26c489c09d42ddd44e00a32ed552c642a4090f3950dd1"
+    }
+  }
+}
