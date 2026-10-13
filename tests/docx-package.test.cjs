@@ -403,3 +403,68 @@ test('expanded-attribute duplicate checks resolve namespace entities, inheritanc
   const accepted = await verify({ document: doc('<w:p xmlns="urn:default" xmlns:a="urn:one" xmlns:b="urn:two" x="1" a:x="2" b:x="3"><w:r xmlns:b="urn:one" a:x="1" b:y="2"/><w:r a:x="1" b:x="2"/></w:p>') });
   assert.ok(accepted.xmlParts.has('word/document.xml'));
 });
+
+test('reserved namespace prefixes and URIs cannot be rebound in any XML part', async () => {
+  const m = await api();
+  const xml = 'http://www.w3.org/XML/1998/namespace';
+  const xmlns = 'http://www.w3.org/2000/xmlns/';
+  for (const binding of [
+    'xmlns:xmlns="urn:wrong"', `xmlns:xmlns="${xmlns}"`, `xmlns:x="${xmlns}"`, `xmlns:x="${xml}"`,
+    'xmlns:xml="urn:wrong"', 'xmlns:xml=""', `xmlns="${xml}"`, `xmlns="${xmlns}"`,
+    `xmlns:x="${xml.replace('namespace', 'namespac&#x65;')}"`,
+    `xmlns:x="${xmlns.replace('xmlns', '&#120;mlns')}"`,
+    `xmlns:xml="${xml}\r\n"`,
+  ]) {
+    const bytes = await zip(minimal({ extra: { 'custom.data': `<root><child ${binding}/></root>` }, contentTypes: types('<Default Extension="data" ContentType="application/example+xml"/>') }));
+    assert.throws(() => m.verifyDocxPackage(bytes), /XML/, binding);
+  }
+});
+
+test('standard xml bindings, defaults, inherited scopes and ordinary rebinding remain legal', async () => {
+  const xml = 'http://www.w3.org/XML/1998/namespace';
+  for (const strict of [false, true]) {
+    const result = await verify({ strict, document: doc(`<w:p xmlns:xml="${xml}" xmlns:a="urn:outer" xml:space="preserve"><w:r xmlns:a="urn:inner" xmlns="urn:default"><中:节点 xmlns:中="urn:中文" xml:lang="zh-CN"/><child xmlns=""/></w:r><a:restored xml:lang="zh"/><w:r xmlns:xml="${xml.replace('namespace', 'namespac&#x65;')}"/></w:p>`, strict ? WS : W) });
+    assert.ok(result.xmlParts.has('word/document.xml'));
+    assert.match(result.xmlParts.get('word/document.xml'), /中文/);
+  }
+});
+
+test('malformed qualified names stay fatal through the strict parser grammar', async () => {
+  const m = await api();
+  for (const body of ['<w:p xmlns:="urn:test"/>', '<w:p xmlns:a:b="urn:test"/>', '<w:p a:b:c="value"/>', '<w:a:b/>']) {
+    const bytes = await zip(minimal({ document: doc(body) }));
+    assert.throws(() => m.verifyDocxPackage(bytes), /XML/);
+  }
+});
+
+test('XML 1.0 is explicit or implied and unsupported declarations are rejected before normalization', async () => {
+  const m = await api();
+  for (const version of ['1.1', '1.2', '2.0', '1.00']) {
+    const bytes = await zip(minimal({ document: `<?xml version="${version}"?>${doc()}` }));
+    assert.throws(() => m.verifyDocxPackage(bytes), /XML.*版本/, version);
+  }
+  for (const declaration of ['', '<?xml version="1.0"?>', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>']) {
+    assert.match((await verify({ document: `${declaration}${doc()}` })).xmlParts.get('word/document.xml'), /中文正文/);
+  }
+});
+
+test('XML 1.0 prefixed undeclaration is rejected while default undeclaration remains legal', async () => {
+  const m = await api();
+  for (const body of ['<w:p xmlns:p=""/>', '<w:p xmlns:p="urn:outer"><w:r xmlns:p=""/></w:p>']) {
+    const bytes = await zip(minimal({ document: doc(body) }));
+    assert.throws(() => m.verifyDocxPackage(bytes), /XML/);
+  }
+  assert.ok((await verify({ document: doc('<w:p xmlns="urn:outer"><w:r xmlns=""/><child xmlns="urn:inner"/><child/></w:p>') })).xmlParts.has('word/document.xml'));
+});
+
+test('relationship IDs are XML 1.0 NCNames with legal Unicode starts and continuations', async () => {
+  const m = await api();
+  for (const id of ['1', 'a:b', 'id#fragment', '-id', '.id', '\u0300id', '\u00d7id', '\u{f0000}id', 'id/path']) {
+    const bytes = await zip(minimal({ rootRels: rels(relation(id, `${R}officeDocument`, 'word/document.xml')) }));
+    assert.throws(() => m.verifyDocxPackage(bytes), /关系.*ID/, id);
+  }
+  for (const id of ['_id', '中文关系1', 'α.2', 'a\u00b7b', 'a\u0300', '\u200cid', '\u{1f600}id', 'a-b']) {
+    const result = await verify({ rootRels: rels(relation(id, `${R}officeDocument`, 'word/document.xml')) });
+    assert.equal(result.relationships.get('_rels/.rels')[0].id, id);
+  }
+});

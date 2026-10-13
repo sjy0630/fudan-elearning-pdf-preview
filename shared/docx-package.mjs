@@ -9,8 +9,12 @@ const RS = 'http://purl.oclc.org/ooxml/officeDocument/relationships/';
 const WORD = new Set(['http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'http://purl.oclc.org/ooxml/wordprocessingml/main']);
 const MAIN = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml';
 const RELTYPE = 'application/vnd.openxmlformats-package.relationships+xml';
+const XML = 'http://www.w3.org/XML/1998/namespace';
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
 const XML_ENTITIES = new Map([['amp', '&'], ['lt', '<'], ['gt', '>'], ['quot', '"'], ['apos', "'"]]);
+// XML 1.0 (Fifth Edition) NameStartChar/NameChar with ':' excluded for NCName.
+const XML_NAME_START = 'A-Z_a-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD\\u{10000}-\\u{EFFFF}';
+const XML_NCNAME = new RegExp('^[' + XML_NAME_START + '][' + XML_NAME_START + '0-9.\\-\\u00B7\\u0300-\\u036F\\u203F-\\u2040]*$', 'u');
 const fail = reason => { throw new Error(`OOXML ${reason}。`); };
 const children = element => {
   const result = [];
@@ -136,6 +140,8 @@ function decodeXml(bytes) {
   let source;
   try { source = new TextDecoder(encoding, { fatal: true }).decode(bytes); } catch { fail('XML 编码无效'); }
   const declaration = /^<\?xml\s[^?]*\?>/.exec(source)?.[0];
+  const version = declaration && /\bversion\s*=\s*(['"])(.*?)\1/.exec(declaration)?.[2];
+  if (version && version !== '1.0') fail('XML 版本不支持（仅支持 1.0）');
   const declared = declaration && /\bencoding\s*=\s*(['"])(.*?)\1/.exec(declaration)?.[2].toLowerCase();
   if (declared && declared !== encoding && !(declared === 'utf-16' && bom && encoding.startsWith('utf-16'))) fail('XML 声明编码不匹配或不支持');
   if (encoding.startsWith('utf-16') && !bom && !declared) fail('XML UTF16 缺少编码声明');
@@ -201,6 +207,7 @@ function inspectAttributes(tag, namespaces) {
   for (const { name, value } of attributes) {
     if (name !== 'xmlns' && !name.startsWith('xmlns:')) continue;
     const prefix = name === 'xmlns' ? '' : name.slice(6);
+    if (prefix === 'xmlns' || value === XMLNS || prefix === 'xml' && value !== XML || value === XML && prefix !== 'xml' || prefix && !value) fail('XML 保留命名空间绑定或前缀声明无效');
     changes.push({ prefix, present: namespaces.has(prefix), value: namespaces.get(prefix) });
     namespaces.set(prefix, value);
   }
@@ -227,7 +234,7 @@ function restoreNamespaces(changes, namespaces) {
 // This linear gate runs before the parser can build any attacker-controlled tree.
 function inspectXml(source, budget) {
   let depth = 0;
-  const namespaces = new Map([['xml', 'http://www.w3.org/XML/1998/namespace']]);
+  const namespaces = new Map([['xml', XML]]);
   const scopes = [];
   for (let cursor = 0; cursor < source.length;) {
     const start = source.indexOf('<', cursor);
@@ -360,7 +367,7 @@ function readRelationships(root, path, parts, aliases) {
     const type = item.getAttribute('Type') || '';
     const target = item.getAttribute('Target') || '';
     const mode = item.getAttribute('TargetMode') || '';
-    if (!id || /\s/u.test(id) || ids.has(id) || !/^[a-z][a-z0-9+.-]*:[^\s\\]+$/i.test(type) || !target || !['', 'Internal', 'External'].includes(mode) || children(item).length) fail('关系属性或 ID 无效');
+    if (!XML_NCNAME.test(id) || ids.has(id) || !/^[a-z][a-z0-9+.-]*:[^\s\\]+$/i.test(type) || !target || !['', 'Internal', 'External'].includes(mode) || children(item).length) fail('关系属性或 ID 无效');
     if (macro(type)) fail('宏关系不支持');
     ids.add(id);
     if (mode === 'External') return { id, type, target, external: true };
