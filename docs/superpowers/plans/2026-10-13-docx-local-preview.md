@@ -6,7 +6,7 @@
 
 **Architecture:** 独立的边界策略、ZIP 目录检查、受限流式解压、OOXML 预检与转换模块组成后台核心。输出经专用清理器进入无脚本、无同源权限的隔离预览；控制器独立保留原字节并管理取消、超时与过期结果。只有预览适配器验收后才注册 DOCX 到现有格式入口。
 
-**Tech Stack:** Node.js 原生测试、现有 fflate/esbuild/Playwright，候选 Mammoth 1.13.0、DOMPurify 3.4.17；固定依赖在转换阶段核对发行内容后安装。
+**Tech Stack:** Node.js 原生测试、现有 fflate/esbuild/Playwright，固定 pako 3.0.2 负责严格流式解压，候选 Mammoth 1.13.0、DOMPurify 3.4.17；依赖核对发行内容后固定安装。
 
 ---
 
@@ -115,7 +115,9 @@ Task 1 证据：提交 `41d847bb0d38a6a9eac2860cd1895904f922d268`；首次测试
 
 ## 🔧 Task 2：ZIP 结构与受限实际解压
 
-**Files:** Create `shared/docx-zip.mjs`, `tests/docx-zip.test.cjs`。使用现有固定 fflate；不修改格式入口。API 为 `scanDocxZip(input)`（返回有界目录条目）与 `expandDocxZip(input)`（返回 `Map<string, Uint8Array>`）。输入先调用 Task 1 的传输检查。
+**Files:** Create `shared/docx-zip.mjs`, `tests/docx-zip.test.cjs`，修改 `package.json`/lock 固定 pako 3.0.2。fflate 保留用于样例压缩及转换副本打包；不修改格式入口。API 为 `scanDocxZip(input)`（返回有界目录条目）与 `expandDocxZip(input)`（返回 `Map<string, Uint8Array>`）。输入先调用 Task 1 的传输检查。
+
+实施调查调整：fflate 0.8.3 会忽略 DEFLATE stored block 的 NLEN 补码，即使 CRC/字节正确仍接受损坏结构。改用已核对的 pako 3.0.2 流式解压（MIT AND Zlib），不自建 Huffman 解析器、不修改 node_modules、不改变产品范围或联网权限。该发行公开 `onStart(ZStream)`、`onData`、`ended`、`err`；保存 onStart 的流引用以核对 `total_in`，无需读取私有解码状态。
 
 - [ ] Step 1：先写测试并运行 `node --test tests/docx-zip.test.cjs`，确认缺少函数导致断言失败，再创建模块。
 
@@ -135,12 +137,12 @@ assert.equal(new TextDecoder().decode(expandDocxZip(bytes).get('word/document.xm
 ```
 
 - [ ] Step 3：名字禁止空段、绝对路径、反斜线、控制符、驱动器/URI/编码后逃逸及 `.`/`..`；允许普通相对层级及目录尾斜线。名字用严格 UTF-8 解码，普通 DOCX 的 ASCII 路径不受影响。额外字段长度有界，ZIP64 拒绝。
-- [ ] Step 4：流式 `Inflate` 每次最多输入 256 字节，回调立即累计实际输出、CRC 和 XML/单项/全包预算；超限当场停止，不先全量 unzip。STORE 同样按实际字节与 CRC 验证。最终校对实际输出与声明大小，保留原输入不变。断言 1,000 项、20 MiB 单项、60 MiB 总量、4 MiB XML 边界；篡改声明大小的高压缩率炸弹必须在实际输出时拒绝。
+- [ ] Step 4：pako `Inflate({raw:true,chunkSize:65536})` 每次最多输入 256 字节，`onData` 立即累计实际输出、CRC 和 XML/单项/全包预算；超限当场停止，不先全量 unzip。固定块输出不超过64KiB。核对 push 返回值/err/ended 与 onStart 的 `total_in === compressedSize`，拒绝未完成/尾随/损坏 NLEN 的压缩流。STORE 同样按实际字节与 CRC 验证。最终校对实际输出与声明大小，保留原输入不变。断言 1,000 项、20 MiB 单项、60 MiB 总量、4 MiB XML 边界；篡改声明大小的高压缩率炸弹必须在实际输出时拒绝。
 - [ ] Step 5：`node --test tests/docx-policy.test.cjs tests/docx-zip.test.cjs` 与语法检查通过；独立规格审查后代码质量审查，修复并重审；只提交该模块与测试。
 
 ## 🔧 Task 3：受限 OOXML 包验证
 
-**Files:** Create `shared/docx-package.mjs`, `tests/docx-package.test.cjs`；依赖阶段允许修改 `package.json`/lock。固定安装 `@xmldom/xmldom@0.9.12`（MIT），供纯 Worker 兼容 XML 解析。API `verifyDocxPackage(input)` 返回 `{parts, documentPath, warnings}`，只有该函数成功才允许原字节下载。`parts` 是 Task 2 返回的有界 Map。
+**Files:** Create `shared/docx-package.mjs`, `tests/docx-package.test.cjs`；依赖阶段允许修改 `package.json`/lock。固定安装 `@xmldom/xmldom@0.9.12`（MIT），供纯 Worker 兼容 XML 解析。API `verifyDocxPackage(input)` 返回 `{parts, documentPath, relationships, warnings}`，只有该函数成功才允许原字节下载。`parts` 是 Task 2 返回的有界 Map；`relationships` 是按关系文件路径索引的 Map，每项为 `{id,type,target,external}` 数组，内部 target 已解析成规范包路径，外部 target 只作为字符串。
 
 - [ ] Step 1：先写缺失导出测试，确认失败。用 fflate 构造真正的最小 OOXML 结构进行单元测试：`[Content_Types].xml`、`_rels/.rels`、`word/document.xml`。正文根必须是 WordprocessingML `document` 且有 `body`；标准 transitional 命名空间用于初版转换。
 
@@ -151,15 +153,15 @@ assert.equal(result.documentPath, 'word/document.xml');
 assert.ok(result.parts.has('word/document.xml'));
 ```
 
-- [ ] Step 2：`expandDocxZip` 后对所有 XML/关系部件执行严格有界 XML 解析；UTF-8/UTF-16 BOM 合法，声明编码与实际匹配，拒绝 DTD/ENTITY、解析警告/错误、未知实体、错误命名空间、重复属性与过度节点/嵌套。用迭代遍历统计节点，不因递归溢出漏检。固定单 XML 4 MiB，并累计合理文档节点预算。
+- [ ] Step 2：`expandDocxZip` 后对所有 XML/关系部件执行严格有界 XML 解析（含内容类型指定为 XML、但没有 `.xml` 后缀的部件）；UTF-8/UTF-16 BOM 合法，声明编码与实际匹配，拒绝 DTD/ENTITY、解析警告/错误、未知实体、错误命名空间、重复属性与过度节点/嵌套。解析前用有界线性词法扫描统计标签与深度（忽略注释、CDATA、指令，正确跨过属性引号）；最多50,000标签、256层，再以 `onError` 任何等级立即抛错的 xmldom 解析。解析后用迭代遍历累计实际节点 <=50,000，不因递归溢出漏检。固定单 XML 4 MiB，不允许更名绕过 XML 限额。
 - [ ] Step 3：检查内容类型的 Default/Override 重复及每个包部件类型；根关系唯一非外部 `officeDocument` 指向存在的非宏 Word 主文档，其 ContentType 精确为 `application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml`。拒绝宏/模板/其他 Office 主文档、vba 部件与宏关系；支持常规正文相对位置，转换阶段不得假定正文总是默认位置。
-- [ ] Step 4：每个 `.rels` 按对应源部件目录解析内部 Target，支持合法 `../` 但归一化后仍须留在包内；禁止绝对/协议/驱动器/反斜线、编码逃逸、查询或非法片段，不请求任何外部 Target。内部指向必须存在；ID 唯一、关系根/属性合法。外部超链接保留警告，外部图片/对象给出缺失说明。不把外部目标视为本地文件。
+- [ ] Step 4：每个 `.rels` 按对应源部件目录解析内部 Target，支持合法 `../` 和 OPC 包根 `/word/...`，归一化后仍须留在包内；拒绝 `//` 网络根、协议/驱动器/反斜线、编码逃逸、查询或非法片段，不请求任何外部 Target。包根目标只查询 Map 中部件，不解释为磁盘路径。内部指向必须存在；ID 唯一、关系根/属性合法。外部超链接保留警告，外部图片/对象给出缺失说明。不把外部目标视为本地文件。
 - [ ] Step 5：对公式、SmartArt/图表、修订、嵌入对象、altChunk、页眉页脚/浮动布局及不支持图片部件生成去重的中文内容局限提示。安全可见内容进入后续转换，不静默宣称完整。
 - [ ] Step 6：测试普通包、非默认正文位置、列表/脚注关系；错误类型/宏伪装、DTD/实体、畸形 XML、重复 IDs/types、内部逃逸/失踪目标、外部关系无读取、特性警告、输入不变；专用测试及旧测试通过，规格与质量审查后提交。
 
 ## 🔧 Task 4：固定依赖、真实样例与 Worker 转换
 
-**Files:** Create `shared/docx-convert.mjs`, `shared/docx-worker.mjs`, `scripts/docx-fixtures.mjs`, `tests/docx-convert.test.cjs`, `tests/fixtures/docx/*`；修改依赖及 lock。固定 Mammoth 1.13.0、DOMPurify 3.4.17，样例生成使用 docx 9.10.0 开发依赖，记录完整许可与发行完整性。API `convertDocx(input, {idPrefix})` 异步返回 `{html, images, warnings}`。`images` 为 `{id,mime,bytes}` 数组，HTML 仅用 `docx-image-N` 标记，无真实资源 URL。
+**Files:** Create `shared/docx-convert.mjs`, `shared/docx-worker.mjs`, `scripts/docx-fixtures.mjs`, `tests/docx-convert.test.cjs`, `tests/fixtures/docx/*`；修改依赖及 lock。固定 Mammoth 1.13.0、DOMPurify 3.4.17，样例生成使用 docx 9.10.0 开发依赖，记录完整许可与发行完整性。API `convertDocx(input, {idPrefix,onVerified})` 异步返回 `{html, images, warnings}`；包验证只做一次，然后可选的可信内部回调 `onVerified` 发出下载可用事件。`images` 为 `{id,mime,bytes}` 数组，HTML 仅用 `docx-image-N` 标记，无真实资源 URL。
 
 - [ ] Step 1：写缺失导出 RED，安装核对候选包。阅读发行 README/Security/License；Mammoth 仅使用固定本地 browser 入口，Worker 打包不得残留 Node 文件系统、HTTP、CDN 或动态远程执行。
 - [ ] Step 2：依 DOCX 生成技能，用 docx-js 创建原创中文样例：标题、中文段落、粗斜体/上下标、嵌套编号、合并表格、脚注/尾注及 PNG/JPEG 至少两类图片。独立验证 OOXML 可打开，固定生成脚本、样例文件和许可；不是用 mock HTML 作为最终证据。
@@ -172,6 +174,10 @@ assert.equal(result.images.length, 2);
 ```
 
 - [ ] Step 3：转换先完成包验证。Mammoth 配置 `includeEmbeddedStyleMap:false`, `externalFileAccess:false`, 每次命名空间 `idPrefix`；只收集内嵌图片，不读取外部目标。图片返回独立字节与内部标记，限制数量、字节、HTML UTF-8 大小；警告去重/有界。禁用嵌入样式映射以避免文档改变固定标签结构。
+
+发行源码调查发现 Mammoth 的内嵌图片解析固定以 `word` 为基址、通用关系路径拼接不归一化 `..`。因此转换输入必须基于已验证 parts 的独立包副本，把内部关系 Target 重写为包根绝对路径，再以 STORE 生成临时转换容器（不得重新放宽原文件20MiB）。此副本总内容仍受60MiB实际解压限额；原字节始终不改。使用固定公共 `convertToHtml`，避免依赖未公开的转换内部接口；测试非默认正文路径和合法跨目录关系确保正文/图片/脚注不会因该上游局限丢失。
+
+临时容器使用 fflate `Zip`/`ZipPassThrough` 的顺序 STORE 接口，不使用 `zipSync` 的内部普通对象文件字典（源码会将根部 `__proto__` 当成原型）；部件/关系/内容类型均用 Map。Mammoth 可使用固定普通公共模块；esbuild browser map 替换 unzip/外部 files 实现，以便锁文件与实际依赖/许可证对应。传入独立容器的 `arrayBuffer`（浏览器）及 `buffer: Uint8Array`（Node），绝不传 `path`/URL；最终 Worker 打包检查浏览器替换确实发生，无 Node IO 残留。
 - [ ] Step 4：Worker 的消息协议为 `{id,bytes,mime}`；完成包验证先发 `{id,type:'verified'}`，再发 `{id,type:'result',...result}`；失败发 `{id,type:'error',message}`。入口不提供 URL、文件系统或网络权限。转换被杀死不影响原字节；纯模块可在 Node 单测，浏览器 Worker 真实运行留到集成验收。
 - [ ] Step 5：真实内容、脚注、表格跨度、PNG/JPEG、图片标记与输入保留测试；恶意链接/embedded-style-map、错误包、外部图片、不支持复杂内容警告测试；固定构建检查与两阶段审查后提交。
 
