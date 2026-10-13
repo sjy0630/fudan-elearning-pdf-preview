@@ -13,7 +13,10 @@ const convertVariant = async edit => {
   const h = await helpers();
   const parts = await h.readFixtureParts();
   await edit(parts, h);
-  return (await api()).convertDocx(h.zipFixtureParts(parts));
+  const bytes = h.zipFixtureParts(parts), original = bytes.slice();
+  const result = await (await api()).convertDocx(bytes);
+  assert.deepEqual(bytes, original);
+  return result;
 };
 
 async function relocateFixtureParts(parts, mapping, h) {
@@ -249,6 +252,49 @@ test('VML link-only image references use the same inert placeholder policy', asy
   assert.equal(result.images.length, 1); assert.match(result.html, /图片暂不支持预览/);
   assert.ok(result.warnings.some(message => /部分图片暂不支持/.test(message)));
 });
+
+async function namespaceImageVariant({ vml = false, strictFirst = false, shadow = 'outside', single = false }) {
+  return convertVariant((parts, h) => {
+    if (shadow === 'outside') h.editFixtureXml(parts, 'word/_rels/document.xml.rels', doc => {
+      const node = doc.createElement('Relationship');
+      for (const [name, value] of Object.entries({ Id: 'outside', Type: h.R + 'image', Target: 'https://example.invalid/image.png', TargetMode: 'External' })) node.setAttribute(name, value);
+      doc.documentElement.appendChild(node);
+    });
+    h.editFixtureXml(parts, 'word/document.xml', doc => {
+      const drawing = doc.getElementsByTagName('w:drawing')[0], blip = drawing.getElementsByTagName('a:blip')[0];
+      const id = blip.getAttribute('r:embed');
+      let image = blip;
+      if (vml) {
+        const pict = doc.createElementNS(W, 'w:pict'), shape = doc.createElementNS('urn:schemas-microsoft-com:vml', 'v:shape');
+        image = doc.createElementNS('urn:schemas-microsoft-com:vml', 'v:imagedata'); shape.appendChild(image); pict.appendChild(shape); drawing.parentNode.replaceChild(pict, drawing);
+      } else image.removeAttribute('r:embed');
+      const attribute = vml ? 'id' : 'embed';
+      const addTransitional = () => image.setAttributeNS(h.R.slice(0, -1), 'r:' + attribute, id);
+      const addStrict = () => image.setAttributeNS(h.RS.slice(0, -1), 's:' + attribute, shadow === 'same' ? id : shadow);
+      if (single) addStrict();
+      else if (strictFirst) { addStrict(); addTransitional(); }
+      else { addTransitional(); addStrict(); }
+    });
+  });
+}
+
+for (const vml of [false, true]) for (const strictFirst of [false, true]) for (const shadow of ['outside', '']) {
+  test(`${vml ? 'VML' : 'DrawingML'} conflicting namespace image attributes become placeholders (${strictFirst ? 'Strict first' : 'Strict last'}, ${shadow || 'empty'})`, async () => {
+    const result = await namespaceImageVariant({ vml, strictFirst, shadow });
+    assert.equal(result.images.length, 1); assert.deepEqual(result.images[0].bytes, new Uint8Array(fixture('mountain-landscape.jpg')));
+    assert.match(result.html, /图片暂不支持预览/); assert.ok(result.warnings.some(message => /部分图片暂不支持/.test(message)));
+  });
+}
+
+for (const vml of [false, true]) {
+  test(`${vml ? 'VML' : 'DrawingML'} equivalent namespace references and single Strict embeddings remain supported`, async () => {
+    for (const options of [{ shadow: 'same' }, { shadow: 'same', strictFirst: true }, { shadow: 'same', single: true }]) {
+      const result = await namespaceImageVariant({ vml, ...options });
+      assert.deepEqual(result.images.map(image => image.bytes), ['learning-chart.png', 'mountain-landscape.jpg'].map(name => new Uint8Array(fixture(name))));
+      assert.doesNotMatch(result.html, /图片暂不支持预览/);
+    }
+  });
+}
 
 test('link-only image references remain subject to the 200-reference budget', async () => {
   const h = await helpers(), parts = await h.readFixtureParts(); let verified = 0;

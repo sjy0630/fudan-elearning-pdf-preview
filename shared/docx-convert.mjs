@@ -135,9 +135,14 @@ function conversionCopy(verified, warn) {
         // Link-only images take Mammoth's external-file path even when their
         // relationship target is internal. Only embedded references are used.
         const attribute = node.localName === 'blip' ? 'embed' : 'id';
-        const id = node.getAttributeNS(R.slice(0, -1), attribute) || node.getAttributeNS(RS.slice(0, -1), attribute);
+        const transitional = node.getAttributeNS(R.slice(0, -1), attribute);
+        const strict = node.getAttributeNS(RS.slice(0, -1), attribute);
+        // Mammoth folds both namespaces into 'r'. Distinct values (including
+        // an explicit empty shadow) must not depend on source attribute order.
+        const ambiguous = node.hasAttributeNS(R.slice(0, -1), attribute) && node.hasAttributeNS(RS.slice(0, -1), attribute) && transitional !== strict;
+        const id = transitional || strict;
         const entry = relationships.get(id);
-        if (!entry || entry.external || kind(entry.type) !== 'image' || !['image/png', 'image/jpeg', 'image/webp'].includes(lookup.verified(entry.target))) {
+        if (ambiguous || !entry || entry.external || kind(entry.type) !== 'image' || !['image/png', 'image/jpeg', 'image/webp'].includes(lookup.verified(entry.target))) {
           warn(IMAGE_WARNING);
           let container = node;
           while (container.parentNode && !(WORD.has(container.namespaceURI) && ['drawing', 'pict', 'object'].includes(container.localName))) container = container.parentNode;
