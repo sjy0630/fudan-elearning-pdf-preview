@@ -16,6 +16,37 @@ const convertVariant = async edit => {
   return (await api()).convertDocx(h.zipFixtureParts(parts));
 };
 
+async function relocateFixtureParts(parts, mapping, h) {
+  const { verifyDocxPackage } = await import('../shared/docx-package.mjs');
+  const verified = verifyDocxPackage(h.zipFixtureParts(parts));
+  h.editFixtureXml(parts, '[Content_Types].xml', doc => {
+    for (const node of doc.getElementsByTagName('Override')) {
+      const old = node.getAttribute('PartName').slice(1);
+      if (mapping.has(old)) node.setAttribute('PartName', '/' + mapping.get(old));
+    }
+  });
+  for (const [name, entries] of verified.relationships) h.editFixtureXml(parts, name, doc => {
+    for (const node of doc.getElementsByTagName('Relationship')) {
+      const entry = entries.find(entry => entry.id === node.getAttribute('Id'));
+      if (!entry.external) node.setAttribute('Target', '/' + (mapping.get(entry.target) || entry.target) + (entry.fragment ? '#' + entry.fragment : ''));
+    }
+  });
+  for (const [old, next] of mapping) { parts.set(next, parts.get(old)); parts.delete(old); }
+}
+
+async function htmlNodeCount(html) {
+  const { DOMParser } = await import('@xmldom/xmldom');
+  const root = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html').documentElement;
+  let count = 0;
+  const pending = [...root.childNodes];
+  while (pending.length) {
+    const node = pending.pop();
+    count += 1 + (node.attributes?.length || 0);
+    pending.push(...node.childNodes);
+  }
+  return count;
+}
+
 test('bounded local DOCX converter is exported', async () => {
   const m = await api();
   assert.equal(typeof m.convertDocx, 'function', 'convertDocx export must exist');
@@ -50,6 +81,122 @@ test('conversion supports relocated main, notes and cross-directory images throu
     for(const [old,next] of mapping) {parts.set(next,parts.get(old));parts.delete(old);}
   });
   assert.match(result.html, /脚注：课程材料/); assert.equal(result.images.length, 2);
+});
+
+test('encoded root and owner relationship filenames normalize without changing original package keys or bytes', async () => {
+  const h = await helpers();
+  for (const basename of ['course notes.xml', 'a%20b.xml', '中文讲义.xml', '__proto__']) {
+    const parts = await h.readFixtureParts();
+    let drawings;
+    h.editFixtureXml(parts, 'word/document.xml', doc => { drawings = [...doc.getElementsByTagName('w:drawing')].map(node => node.cloneNode(true)); });
+    for (const [i, noteName] of ['footnotes', 'endnotes'].entries()) {
+      const imagePath = [...parts.keys()].find(name => name.endsWith(i ? '.jpeg' : '.png') || i && name.endsWith('.jpg'));
+      h.editFixtureXml(parts, `word/${noteName}.xml`, doc => {
+        const note = [...doc.getElementsByTagName('w:' + noteName.slice(0, -1))].find(node => node.getAttribute('w:id') === '1');
+        const drawing = doc.importNode(drawings[i], true); drawing.getElementsByTagName('a:blip')[0].setAttribute('r:embed', 'noteImage');
+        const paragraph = doc.createElementNS(W, 'w:p'), run = doc.createElementNS(W, 'w:r'); run.appendChild(drawing); paragraph.appendChild(run); note.appendChild(paragraph);
+      });
+      h.editFixtureXml(parts, `word/_rels/${noteName}.xml.rels`, doc => {
+        const node = doc.createElement('Relationship'); node.setAttribute('Id', 'noteImage'); node.setAttribute('Type', h.R + 'image'); node.setAttribute('Target', '/' + imagePath); doc.documentElement.appendChild(node);
+      });
+    }
+    const encoded = encodeURIComponent(decodeURIComponent(basename));
+    const mapping = new Map([
+      ['word/document.xml', 'chapters/' + basename],
+      ['word/_rels/document.xml.rels', 'chapters/_rels/' + encoded + '.rels'],
+      ['_rels/.rels', '_rels/%2erels'],
+      ['word/footnotes.xml', 'notes/脚注%20part.xml'],
+      ['word/_rels/footnotes.xml.rels', 'notes/_rels/%E8%84%9A%E6%B3%A8%20part.xml.rels'],
+      ['word/endnotes.xml', 'notes/尾注 part.xml'],
+      ['word/_rels/endnotes.xml.rels', 'notes/_rels/%E5%B0%BE%E6%B3%A8%20part.xml.rels'],
+    ]);
+    // Relocation follows actual verified targets, not textual URI spellings.
+    await relocateFixtureParts(parts, mapping, h);
+    h.editFixtureXml(parts, '[Content_Types].xml', doc => {
+      for (const name of [...mapping.values()].filter(name => name.includes('_rels/'))) {
+        const node = doc.createElement('Override'); node.setAttribute('PartName', '/' + name);
+        node.setAttribute('ContentType', 'application/vnd.openxmlformats-package.relationships+xml'); doc.documentElement.appendChild(node);
+      }
+    });
+    const bytes = h.zipFixtureParts(parts), before = bytes.slice();
+    const originalParts = [...parts].map(([name, value]) => [name, value.slice()]);
+    const result = await (await api()).convertDocx(bytes);
+    assert.match(result.html, /第一章 本地阅读/); assert.match(result.html, /脚注：课程材料/); assert.match(result.html, /尾注：原创图片/);
+    assert.deepEqual(result.images.map(image => image.bytes), ['learning-chart.png', 'mountain-landscape.jpg', 'learning-chart.png', 'mountain-landscape.jpg'].map(name => new Uint8Array(fixture(name))));
+    assert.deepEqual(bytes, before); assert.deepEqual([...parts], originalParts);
+    assert.ok(parts.has('_rels/%2erels')); assert.ok(parts.has('chapters/_rels/' + encoded + '.rels'));
+  }
+});
+
+test('validated image MIME survives encoded filename extensions without changing bytes', async () => {
+  const h = await helpers(), parts = await h.readFixtureParts();
+  const png = [...parts.keys()].find(name => name.endsWith('.png'));
+  await relocateFixtureParts(parts, new Map([[png, 'assets/学习图.%70ng']]), h);
+  const bytes = h.zipFixtureParts(parts), original = bytes.slice();
+  const result = await (await api()).convertDocx(bytes);
+  assert.equal(result.images.length, 2); assert.equal(result.images[0].mime, 'image/png');
+  assert.deepEqual(result.images[0].bytes, new Uint8Array(fixture('learning-chart.png')));
+  assert.deepEqual(bytes, original); assert.ok(parts.has('assets/学习图.%70ng'));
+});
+
+test('adding a conversion-only image MIME override cannot exceed the XML byte budget', async () => {
+  const h = await helpers(), parts = await h.readFixtureParts(); let verified = 0;
+  const png = [...parts.keys()].find(name => name.endsWith('.png'));
+  await relocateFixtureParts(parts, new Map([[png, 'assets/diagram.%70ng']]), h);
+  const { verifyDocxPackage } = await import('../shared/docx-package.mjs');
+  const normalized = verifyDocxPackage(h.zipFixtureParts(parts)).xmlParts.get('[Content_Types].xml');
+  const padded = normalized.replace('</Types>', ' '.repeat(4 * 1024 * 1024 - Buffer.byteLength(normalized)) + '</Types>');
+  assert.equal(Buffer.byteLength(padded), 4 * 1024 * 1024); parts.set('[Content_Types].xml', Buffer.from(padded));
+  await assert.rejects((await api()).convertDocx(h.zipFixtureParts(parts, 0), { onVerified() { verified++; } }), /转换副本 XML.*4 MiB/);
+  assert.equal(verified, 1);
+});
+
+test('conversion rejects more than 50000 output nodes even below the HTML byte limit', async () => {
+  const h = await helpers(), parts = await h.readFixtureParts(); let verified = 0;
+  h.editFixtureXml(parts, 'word/footnotes.xml', doc => {
+    const note = [...doc.getElementsByTagName('w:footnote')].find(node => node.getAttribute('w:id') === '1');
+    const paragraph = note.getElementsByTagName('w:p')[0];
+    for (let i = 0; i < 999; i++) note.appendChild(paragraph.cloneNode(true));
+  });
+  h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const paragraph = doc.getElementsByTagName('w:p')[0], reference = doc.getElementsByTagName('w:footnoteReference')[0];
+    for (let i = 0; i < 30; i++) { const run = doc.createElementNS(W, 'w:r'); run.appendChild(reference.cloneNode(true)); paragraph.appendChild(run); }
+  });
+  await assert.rejects((await api()).convertDocx(h.zipFixtureParts(parts), { onVerified() { verified++; } }), /转换 HTML 节点.*50000/);
+  assert.equal(verified, 1);
+});
+
+test('output budget includes text and attributes, accepts exactly 50000 and rejects one more', async () => {
+  const h = await helpers(), parts = await h.readFixtureParts(), m = await api();
+  h.editFixtureXml(parts, 'word/footnotes.xml', doc => {
+    const note = [...doc.getElementsByTagName('w:footnote')].find(node => node.getAttribute('w:id') === '1');
+    const paragraph = note.getElementsByTagName('w:p')[0];
+    for (let i = 0; i < 999; i++) note.appendChild(paragraph.cloneNode(true));
+  });
+  h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const paragraph = doc.getElementsByTagName('w:p')[0], reference = doc.getElementsByTagName('w:footnoteReference')[0];
+    for (let i = 0; i < 20; i++) { const run = doc.createElementNS(W, 'w:r'); run.appendChild(reference.cloneNode(true)); paragraph.appendChild(run); }
+  });
+  const base = await m.convertDocx(h.zipFixtureParts(parts));
+  const delta = 50000 - await htmlNodeCount(base.html);
+  assert.ok(delta > 3);
+  h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const body = doc.getElementsByTagName('w:body')[0];
+    const add = bold => {
+      const p = doc.createElementNS(W, 'w:p'), r = doc.createElementNS(W, 'w:r'), t = doc.createElementNS(W, 'w:t'); t.textContent = '边界';
+      if (bold) { const props = doc.createElementNS(W, 'w:rPr'); props.appendChild(doc.createElementNS(W, 'w:b')); r.appendChild(props); }
+      r.appendChild(t); p.appendChild(r); body.insertBefore(p, body.lastChild);
+    };
+    if (delta % 2) add(true);
+    for (let i = 0; i < (delta - (delta % 2 ? 3 : 0)) / 2; i++) add(false);
+  });
+  const exact = await m.convertDocx(h.zipFixtureParts(parts));
+  assert.equal(await htmlNodeCount(exact.html), 50000); assert.ok(Buffer.byteLength(exact.html) < 4 * 1024 * 1024);
+  h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const paragraphs = doc.getElementsByTagName('w:p'), run = paragraphs[paragraphs.length - 1].getElementsByTagName('w:r')[0];
+    const props = doc.createElementNS(W, 'w:rPr'); props.appendChild(doc.createElementNS(W, 'w:b')); run.insertBefore(props, run.firstChild);
+  });
+  await assert.rejects(m.convertDocx(h.zipFixtureParts(parts)), /转换 HTML 节点.*50000/);
 });
 
 test('Strict relationship types and UTF16 source XML preserve genuine semantics', async () => {

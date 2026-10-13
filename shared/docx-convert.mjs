@@ -27,31 +27,97 @@ function contentTypeLookup(document) {
     if (node.localName === 'Default') defaults.set(node.getAttribute('Extension'), node.getAttribute('ContentType'));
     if (node.localName === 'Override') overrides.set(node.getAttribute('PartName').slice(1), node.getAttribute('ContentType'));
   }
-  return name => overrides.get(name) || defaults.get(decodeName(name).split('.').pop().toLowerCase());
+  return {
+    verified: name => overrides.get(name) || defaults.get(decodeName(name).split('.').pop().toLowerCase()),
+    literal: name => overrides.get(name) || defaults.get(name.split('.').pop()),
+  };
+}
+
+function conversionNames(verified) {
+  if (verified.parts.size > DOCX_LIMITS.entries) fail('转换副本部件数超过限制（1000）');
+  const aliases = new Map([...verified.parts.keys()].map(name => [decodeName(name), name]));
+  const names = new Map([...verified.parts.keys()].map(name => [name, name]));
+  const owners = new Map();
+  for (const name of verified.relationships.keys()) {
+    const canonical = decodeName(name);
+    if (canonical === '_rels/.rels') { names.set(name, '_rels/.rels'); owners.set(name, ''); continue; }
+    const match = /^(?:(.*)\/)?_rels\/([^/]+)\.rels$/.exec(canonical);
+    const owner = aliases.get(`${match[1] ? match[1] + '/' : ''}${match[2]}`);
+    if (!owner) fail('转换副本关系源无效');
+    const slash = owner.lastIndexOf('/');
+    names.set(name, `${slash < 0 ? '' : owner.slice(0, slash + 1)}_rels/${owner.slice(slash + 1)}.rels`);
+    owners.set(name, owner);
+  }
+  const destinations = new Set();
+  for (const destination of names.values()) {
+    if (destinations.has(destination)) fail('转换副本部件名称冲突');
+    destinations.add(destination);
+  }
+  return { names, owners };
+}
+
+function checkOutputNodes(html) {
+  // Mammoth escapes literal '<' in text/attributes. Count opening tags first
+  // to reject excessive element output before allocating a parsed tree.
+  let elements = 0;
+  for (const ignored of html.matchAll(/<[A-Za-z]/g)) {
+    if (++elements > DOCX_LIMITS.nodes) fail('转换 HTML 节点数超过限制（50000）');
+  }
+  const document = new DOMParser({
+    normalizeLineEndings: value => value.replace(/\r\n?/g, '\n'),
+    onError() { fail('转换 HTML 无效'); },
+  }).parseFromString(`<div>${html}</div>`, 'text/html');
+  const wrapper = document.documentElement, pending = [wrapper];
+  let nodes = 0;
+  while (pending.length) {
+    const node = pending.pop();
+    // As at the package gate, the budget includes attributes and all DOM nodes.
+    // Only the synthetic counting wrapper and Document are excluded.
+    if (node !== wrapper) nodes += 1 + (node.attributes?.length || 0);
+    if (nodes > DOCX_LIMITS.nodes) fail('转换 HTML 节点数超过限制（50000）');
+    for (let child = node.lastChild; child; child = child.previousSibling) pending.push(child);
+  }
 }
 
 // Mammoth's public converter expects UTF-8, transitional relationship types and
 // absolute image targets. Normalize a separate STORE archive of verified parts.
 // Neither a second expansion nor a second package verification is performed.
 function conversionCopy(verified, warn) {
+  const { names, owners } = conversionNames(verified);
   const documents = new Map([...verified.xmlParts].map(([name, source]) => [name, parseCopy(source)]));
   const lookup = contentTypeLookup(documents.get('[Content_Types].xml'));
+  const typesRoot = documents.get('[Content_Types].xml').documentElement;
+  const overrides = new Map();
+  for (const node of typesRoot.childNodes) if (node.nodeType === 1 && node.localName === 'Override') {
+    const destination = names.get(node.getAttribute('PartName').slice(1));
+    node.setAttribute('PartName', '/' + destination); overrides.set(destination, node);
+  }
+  // Mammoth's extension lookup is literal and case-sensitive. Preserve the
+  // verifier's URI-aware image MIME with an explicit override when needed.
+  for (const name of verified.parts.keys()) {
+    const type = lookup.verified(name);
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(type) || lookup.literal(name) === type) continue;
+    const destination = names.get(name);
+    let node = overrides.get(destination);
+    if (!node) {
+      node = typesRoot.ownerDocument.createElementNS(typesRoot.namespaceURI, 'Override');
+      node.setAttribute('PartName', '/' + destination); typesRoot.appendChild(node); overrides.set(destination, node);
+    }
+    node.setAttribute('ContentType', type);
+  }
   const relationsByOwner = new Map();
   for (const [name, entries] of verified.relationships) {
-    const canonical = decodeName(name);
-    const match = /^(?:(.*)\/)?_rels\/([^/]+)\.rels$/.exec(canonical);
-    const owner = canonical === '_rels/.rels' ? '' : `${match[1] ? match[1] + '/' : ''}${match[2]}`;
-    relationsByOwner.set(owner, new Map(entries.map(entry => [entry.id, entry])));
+    relationsByOwner.set(owners.get(name), new Map(entries.map(entry => [entry.id, entry])));
     const nodes = documents.get(name).getElementsByTagNameNS(REL, 'Relationship');
     for (const node of nodes) {
       const entry = entries.find(entry => entry.id === node.getAttribute('Id'));
       if (entry.type.startsWith(RS)) node.setAttribute('Type', R + entry.type.slice(RS.length));
-      if (!entry.external) node.setAttribute('Target', `/${entry.target}${entry.fragment ? '#' + entry.fragment : ''}`);
+      if (!entry.external) node.setAttribute('Target', `/${names.get(entry.target)}${entry.fragment ? '#' + entry.fragment : ''}`);
     }
   }
   let imageReferences = 0;
   for (const [name, doc] of documents) {
-    const relationships = relationsByOwner.get(decodeName(name)) || new Map();
+    const relationships = relationsByOwner.get(name) || new Map();
     const pending = [doc.documentElement];
     while (pending.length) {
       const node = pending.pop();
@@ -66,7 +132,7 @@ function conversionCopy(verified, warn) {
         if (++imageReferences > DOCX_LIMITS.images) fail('图片引用数超过限制（200）');
         const id = node.getAttributeNS(R.slice(0, -1), 'embed') || node.getAttributeNS(RS.slice(0, -1), 'embed') || node.getAttributeNS(R.slice(0, -1), 'link') || node.getAttributeNS(RS.slice(0, -1), 'link') || node.getAttributeNS(R.slice(0, -1), 'id') || node.getAttributeNS(RS.slice(0, -1), 'id');
         const entry = relationships.get(id);
-        if (!entry || entry.external || kind(entry.type) !== 'image' || !['image/png', 'image/jpeg', 'image/webp'].includes(lookup(entry.target))) {
+        if (!entry || entry.external || kind(entry.type) !== 'image' || !['image/png', 'image/jpeg', 'image/webp'].includes(lookup.verified(entry.target))) {
           warn(IMAGE_WARNING);
           let container = node;
           while (container.parentNode && !(WORD.has(container.namespaceURI) && ['drawing', 'pict', 'object'].includes(container.localName))) container = container.parentNode;
@@ -96,7 +162,7 @@ function conversionCopy(verified, warn) {
     }
     total += bytes.byteLength;
     if (total > DOCX_LIMITS.expandedBytes) fail('转换副本内容大小超过限制（60 MiB）');
-    parts.set(name, bytes);
+    parts.set(names.get(name), bytes);
   }
   const chunks = []; let size = 0;
   const archive = new Zip((error, chunk) => { if (error) throw error; size += chunk.byteLength; chunks.push(chunk); });
@@ -144,6 +210,7 @@ export async function convertDocx(input, { idPrefix, onVerified } = {}) {
   // Mammoth deliberately recovers image callback errors; limits must stay fatal.
   if (imageError) throw imageError;
   if (encoder.encode(result.value).byteLength > DOCX_LIMITS.htmlBytes) fail('转换 HTML 大小超过限制（4 MiB）');
+  checkOutputNodes(result.value);
   if (result.messages.length) warn(CONVERSION_WARNING);
   return { html: result.value, images, warnings };
 }
