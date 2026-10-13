@@ -144,9 +144,9 @@ Task 2 证据：提交 `b82fb351a05344d19cc7661076122e522a2ce11c`；缺失导出
 
 ## 🔧 Task 3：受限 OOXML 包验证
 
-**Files:** Create `shared/docx-package.mjs`, `tests/docx-package.test.cjs`；依赖阶段允许修改 `package.json`/lock。固定安装 `@xmldom/xmldom@0.9.12`（MIT），供纯 Worker 兼容 XML 解析。API `verifyDocxPackage(input)` 返回 `{parts, xmlParts, documentPath, relationships, warnings}`，只有该函数成功才允许原字节下载。`parts` 是 Task 2 返回的有界 Map；`xmlParts` 是规范 UTF-8 XML 字符串的 Map（序列化已验证的 documentElement，不保留旧编码声明），供转换副本使用；`relationships` 是按关系文件路径索引的 Map，每项为 `{id,type,target,external}` 数组，内部 target 已解析成规范包路径，外部 target 只作为字符串。
+**Files:** Create `shared/docx-package.mjs`, `tests/docx-package.test.cjs`；依赖阶段允许修改 `package.json`/lock。固定安装 `@xmldom/xmldom@0.9.12`（MIT），供纯 Worker 兼容 XML 解析。API `verifyDocxPackage(input)` 返回 `{parts, xmlParts, documentPath, relationships, warnings}`，只有该函数成功才允许原字节下载。`parts` 是 Task 2 返回的有界 Map；`xmlParts` 是规范 UTF-8 XML 字符串的 Map（序列化已验证的 documentElement，不保留旧编码声明），供转换副本使用；`relationships` 是按关系文件路径索引的 Map，每项为 `{id,type,target,external,fragment?}` 数组，内部 target 为实际部件的 Map 键（安全 URI 别名唯一解析），外部 target 只作为字符串。
 
-- [ ] Step 1：先写缺失导出测试，确认失败。用 fflate 构造真正的最小 OOXML 结构进行单元测试：`[Content_Types].xml`、`_rels/.rels`、`word/document.xml`。正文根必须是 WordprocessingML `document` 且有唯一 `body`；接受标准 transitional 与 Strict 命名空间，二者由已核对 Mammoth 发行支持。
+- [x] Step 1：先写缺失导出测试，确认失败。用 fflate 构造真正的最小 OOXML 结构进行单元测试：`[Content_Types].xml`、`_rels/.rels`、`word/document.xml`。正文根必须是 WordprocessingML `document` 且有唯一 `body`；接受标准 transitional 与 Strict 命名空间，二者由已核对 Mammoth 发行支持。
 
 ```javascript
 assert.equal(typeof api.verifyDocxPackage, 'function');
@@ -155,11 +155,15 @@ assert.equal(result.documentPath, 'word/document.xml');
 assert.ok(result.parts.has('word/document.xml'));
 ```
 
-- [ ] Step 2：`expandDocxZip` 后对所有 XML/关系部件执行严格有界 XML 解析（含内容类型指定为 XML、但没有 `.xml` 后缀的部件）；UTF-8/UTF-16 BOM 合法，声明编码与实际匹配，拒绝 DTD/ENTITY、解析警告/错误、未知实体、错误命名空间、重复属性与过度节点/嵌套。解析前用有界线性词法扫描统计标签与深度（忽略注释、CDATA、指令，正确跨过属性引号）；最多50,000标签、256层，再以 `onError` 任何等级立即抛错的 xmldom 解析。解析后用迭代遍历累计实际节点 <=50,000，不因递归溢出漏检。固定单 XML 4 MiB，不允许更名绕过 XML 限额。
-- [ ] Step 3：检查内容类型的 Default/Override 重复及每个包部件类型；根关系唯一非外部 `officeDocument` 指向存在的非宏 Word 主文档，其 ContentType 精确为 `application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml`。拒绝宏/模板/其他 Office 主文档、vba 部件与宏关系；支持常规正文相对位置，转换阶段不得假定正文总是默认位置。
-- [ ] Step 4：每个 `.rels` 按对应源部件目录解析内部 Target，支持合法 `../` 和 OPC 包根 `/word/...`，归一化后仍须留在包内；拒绝 `//` 网络根、协议/驱动器/反斜线、编码逃逸、查询或非法片段，不请求任何外部 Target。包根目标只查询 Map 中部件，不解释为磁盘路径。内部指向必须存在；ID 唯一、关系根/属性合法。外部超链接保留警告，外部图片/对象给出缺失说明。不把外部目标视为本地文件。
-- [ ] Step 5：对公式、SmartArt/图表、修订、嵌入对象、altChunk、页眉页脚/浮动布局及不支持图片部件生成去重的中文内容局限提示。安全可见内容进入后续转换，不静默宣称完整。
-- [ ] Step 6：测试普通包、非默认正文位置、列表/脚注关系；错误类型/宏伪装、DTD/实体、畸形 XML、重复 IDs/types、内部逃逸/失踪目标、外部关系无读取、特性警告、输入不变；专用测试及旧测试通过，规格与质量审查后提交。
+- [x] Step 2：`expandDocxZip` 后对所有 XML/关系部件执行严格有界 XML 解析（含内容类型指定为 XML、但没有 `.xml` 后缀的部件）；UTF-8/UTF-16 BOM 合法，声明编码与实际匹配，拒绝 DTD/ENTITY、解析警告/错误、未知实体、错误命名空间、重复属性与过度节点/嵌套。解析前用有界线性词法扫描统计标签与深度（忽略注释、CDATA、指令，正确跨过属性引号）；最多50,000标签、256层，再以 `onError` 任何等级立即抛错的 xmldom 解析。解析后用迭代遍历累计实际节点 <=50,000，不因递归溢出漏检。固定单 XML 4 MiB，不允许更名绕过 XML 限额。第一版明确只支持 XML 1.0；省略声明按1.0解释，其他版本报告不支持，避免去掉声明的转换副本改变版本语义。词法预检必须独立执行 XML/XMLNS 保留前缀及URI绑定规则；xmldom静默接受不合法绑定时不能视为有效XML。XML1.0不允许前缀解除绑定；合法默认命名空间清空、普通前缀重新绑定及固定xml绑定保持支持。
+- [x] Step 3：检查内容类型的 Default/Override 重复及每个包部件类型；根关系唯一非外部 `officeDocument` 指向存在的非宏 Word 主文档，其 ContentType 精确为 `application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml`。拒绝宏/模板/其他 Office 主文档、vba 部件与宏关系；支持常规正文相对位置，转换阶段不得假定正文总是默认位置。
+- [x] Step 4：每个 `.rels` 按对应源部件目录解析内部 Target，支持合法 `../` 和 OPC 包根 `/word/...`，归一化后仍须留在包内；拒绝 `//` 网络根、协议/驱动器/反斜线、编码逃逸、查询或非法片段，不请求任何外部 Target。包根目标只查询 Map 中部件，不解释为磁盘路径。内部指向必须存在；ID 唯一、关系根/属性合法。外部超链接保留警告，外部图片/对象给出缺失说明。不把外部目标视为本地文件。
+
+内部片段只对标准 hyperlink 关系允许：先按字面 `#` 分割，再严格解码；编号最多256字符，仅 Unicode字母/数字/`_ . : -` 等 XML-ID 风格字符，不含控制符/路径/查询/另一个#。空路径指当前关系所属部件；其他关系类型不允许片段。`fragment` 独立保存，不静默丢弃。已验证 ZIP 名称建立有界安全 URI 别名索引，以兼容百分号编码或原始空格/Unicode名称，目标最终仍唯一指向现有实际Map键。后续预览清理全部href，不因该支持授予跳转权限。
+- [x] Step 5：对公式、SmartArt/图表、修订、嵌入对象、altChunk、页眉页脚/浮动布局及不支持图片部件生成去重的中文内容局限提示。安全可见内容进入后续转换，不静默宣称完整。
+- [x] Step 6：测试普通包、非默认正文位置、列表/脚注关系；错误类型/宏伪装、DTD/实体、畸形 XML、重复 IDs/types、内部逃逸/失踪目标、外部关系无读取、特性警告、输入不变；专用测试及旧测试通过，规格与质量审查后提交。
+
+Task 3 证据：初次实现 `48f3e5f`，审查修复提交 `8a91d05`、`73e0040`、`4c91864e676379a345fe4964b2a911ba16c93942`。缺失导出与每组审查探针均先RED后GREEN；主代理专用88/88通过，独立规格37拒绝/11合法探针通过，质量复审34拒绝/17合法探针及完整178/178通过，语法与空白检查通过。两种审查无未解决问题；尚未接入转换器或DOCX入口。
 
 ## 🔧 Task 4：固定依赖、真实样例与 Worker 转换
 
@@ -182,6 +186,8 @@ assert.equal(result.images.length, 2);
 临时容器使用 fflate `Zip`/`ZipPassThrough` 的顺序 STORE 接口，不使用 `zipSync` 的内部普通对象文件字典（源码会将根部 `__proto__` 当成原型）；部件/关系/内容类型均用 Map。Mammoth 可使用固定普通公共模块；esbuild browser map 替换 unzip/外部 files 实现，以便锁文件与实际依赖/许可证对应。传入独立容器的 `arrayBuffer`（浏览器）及 `buffer: Uint8Array`（Node），绝不传 `path`/URL；最终 Worker 打包检查浏览器替换确实发生，无 Node IO 残留。
 
 Mammoth 还固定按 UTF-8 读取 XML，且关系部件搜索仅匹配 transitional Type。因此转换副本把全部 `xmlParts` 写成 UTF-8，Strict 的已验证标准关系 Type 归一化为 transitional Type（正文命名空间保留，Mammoth 两者均支持）。重新检查副本各 XML4MiB/合计60MiB预算；不改变下载字节。单测覆盖 UTF-16 中文正文/关系和 Strict/非默认部件路径，避免安全入口通过但转换器无声丢失内容。
+
+XML1.0预检的行结束处理只归一化CRLF/CR，保留合法U+0085/U+2028/U+2029。转换阶段须核对Mammoth实际锁定的嵌套XML解析器会否再次使用更宽的默认归一化；若会，转换副本必须以语义等价的字符引用保护这些字符（包括CDATA正文与属性），并覆盖真实转换结果。不能将不兼容的0.9解析器强行覆盖Mammoth的0.8依赖或修改node_modules；原始下载字节仍不改。
 - [ ] Step 4：Worker 的消息协议为 `{id,bytes,mime}`；完成包验证先发 `{id,type:'verified'}`，再发 `{id,type:'result',...result}`；失败发 `{id,type:'error',message}`。入口不提供 URL、文件系统或网络权限。转换被杀死不影响原字节；纯模块可在 Node 单测，浏览器 Worker 真实运行留到集成验收。
 - [ ] Step 5：真实内容、脚注、表格跨度、PNG/JPEG、图片标记与输入保留测试；恶意链接/embedded-style-map、错误包、外部图片、不支持复杂内容警告测试；固定构建检查与两阶段审查后提交。
 
@@ -208,6 +214,8 @@ assert.deepEqual([...original],[0x50,0x4b,3,4]);
 **Files:** Modify `userscript/preview.template.js`, `scripts/build-userscript.mjs`, `shared/formats.js` 与现有相关测试；create `scripts/bundle-docx.mjs`, `tests/docx-bundle.test.cjs`, `scripts/smoke-docx.mjs`。运行时依赖全部本地固定打包；许可内嵌。生成文件通过 generator 更新，不手工编辑。
 
 - [ ] Step 1：缺失 DOCX API/打包标记 RED。`bundleDocx()` 用 esbuild 生成本地 browser IIFE 核心与 Worker 源字符串；Worker 不带 URL/网络/文件系统调用，主线程不包含无界转换 fallback。打包许可包括 Mammoth、DOMPurify、fflate、xmldom 与实际传递依赖，许可内容不伪装成 README。
+
+pako 3.0.2 的发行 LICENSE 只列 MIT，Zlib 部分完整版权/限制在随包 `dist/pako.mjs.map` 的 `sourcesContent` 中（`../src/zlib/inflate.mjs` 开头注释）。构建必须从固定发行提取该完整 notice 与 MIT 一同内嵌/随扩展分发，不能只保留已被发行压缩器去掉注释的 `.mjs` 或包 metadata 许可证标签。其他库同样核对实际所含源许可证。
 - [ ] Step 2：在模板 `EMBED_DOCX_BUNDLE` 标记注入闭包内 API。DOCX 独立 iframe `fdpdf-docx` 加 `sandbox=""`，可信工具区显示内容局限/取消，没有 PDF 下拉或图片/文本工具。close/newfile/pagehide 清 srcdoc、隐藏并 abort 任务；旧 generation 不改显示。
 - [ ] Step 3：适配器可用后才在 `shared/formats.js` 注册 exact docx/20MiB，传输验证明确仅为初筛。`loadPdf` 的 DOCX 分支位于图片分支之前，先 `runDocxTask`，verified 回调只对当前任务 `setDownload` 原字节；sanitize 后才设 srcdoc。转换/清理失败保留已验证下载，传输/包失败无下载，提供原学校文件入口及重试；取消不自动重开。
 - [ ] Step 4：真实 DOCX 的 Chromium/Firefox 集成渲染、表格跨度、两类图片自然尺寸、中文/脚注可见与文字选择、原字节下载；攻击包无执行、无外网、sandbox无token、CSP存在；关闭/重开/换文件/超时/CSP拒绝/失败下载策略。既有 userscript/PDF reader 回归；记录注入不等于真实管理器安装。两阶段审查后提交。
