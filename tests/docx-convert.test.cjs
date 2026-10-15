@@ -447,6 +447,56 @@ test('discarding an external note source preserves a later valid internal reloca
   assert.ok(result.warnings.includes('部分文档格式无法完整转换，预览可能有所省略。'));
 });
 
+test('selected XML sources must have passed XML verification before the public converter runs', async () => {
+  const h = await helpers(), m = await api(), mammoth = require('mammoth'), original = mammoth.convertToHtml;
+  for (const type of ['footnotes', 'endnotes', 'styles', 'numbering', 'comments']) {
+    const parts = await h.readFixtureParts(), source = `word/${type}.xml`, target = `assets/${type}.bin`;
+    if (type === 'comments') {
+      parts.set(source, Buffer.from(`<w:comments xmlns:w="${W}"><w:comment w:id="1"><w:p><w:r><w:t>小规模注释</w:t></w:r></w:p></w:comment></w:comments>`));
+      h.editFixtureXml(parts, '[Content_Types].xml', doc => {
+        const entry = doc.createElement('Override'); entry.setAttribute('PartName', '/' + source); entry.setAttribute('ContentType', 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml'); doc.documentElement.appendChild(entry);
+      });
+      h.editFixtureXml(parts, 'word/_rels/document.xml.rels', doc => {
+        const entry = doc.createElement('Relationship'); entry.setAttribute('Id', 'selectedComments'); entry.setAttribute('Type', h.R + type); entry.setAttribute('Target', '/' + source); doc.documentElement.appendChild(entry);
+      });
+    }
+    const mapping = new Map([[source, target]]), rels = `word/_rels/${type}.xml.rels`;
+    if (parts.has(rels)) mapping.set(rels, `assets/_rels/${type}.bin.rels`);
+    await relocateFixtureParts(parts, mapping, h);
+    h.editFixtureXml(parts, '[Content_Types].xml', doc => {
+      const entry = [...doc.getElementsByTagName('Override')].find(node => node.getAttribute('PartName') === '/' + target); entry.setAttribute('ContentType', 'image/png');
+    });
+    const bytes = h.zipFixtureParts(parts, 0), before = bytes.slice(); let calls = 0, verified = false;
+    mammoth.convertToHtml = async () => { calls++; return { value: '<p>safe sentinel</p>', messages: [] }; };
+    try {
+      await assert.rejects(m.convertDocx(bytes, { async onVerified() { await Promise.resolve(); verified = true; } }), /XML 来源未通过验证/);
+      assert.equal(verified, true); assert.equal(calls, 0); assert.deepEqual(bytes, before);
+    } finally { mammoth.convertToHtml = original; }
+  }
+});
+
+test('legitimate relocated XML sources keep their semantics with non-XML filename suffixes', async () => {
+  const result = await convertVariant(async (parts, h) => {
+    const mapping = new Map();
+    for (const type of ['footnotes', 'endnotes', 'styles', 'numbering']) {
+      mapping.set(`word/${type}.xml`, `assets/${type}.bin`);
+      const rels = `word/_rels/${type}.xml.rels`;
+      if (parts.has(rels)) mapping.set(rels, `assets/_rels/${type}.bin.rels`);
+    }
+    await relocateFixtureParts(parts, mapping, h);
+  });
+  assert.match(result.html, /<h1>第一章 本地阅读<\/h1>/); assert.match(result.html, /脚注：课程材料/); assert.match(result.html, /尾注：原创图片/);
+  assert.match(result.html, /<ol>.*<ol>/); assert.equal(result.images.length, 2);
+});
+
+test('verified conventional XML fallbacks retain notes styles and numbering without explicit relationships', async () => {
+  const result = await convertVariant((parts, h) => h.editFixtureXml(parts, 'word/_rels/document.xml.rels', doc => {
+    for (const entry of [...doc.getElementsByTagName('Relationship')]) if (['footnotes', 'endnotes', 'styles', 'numbering', 'comments'].some(type => entry.getAttribute('Type') === h.R + type)) entry.parentNode.removeChild(entry);
+  }));
+  assert.match(result.html, /<h1>第一章 本地阅读<\/h1>/); assert.match(result.html, /脚注：课程材料/); assert.match(result.html, /尾注：原创图片/);
+  assert.match(result.html, /<ol>.*<ol>/); assert.equal(result.images.length, 2);
+});
+
 test('conflicting Word namespace note and style attributes cannot bypass the preflight', async () => {
   const h = await helpers(), m = await api(), strict = 'http://purl.oclc.org/ooxml/wordprocessingml/main';
   const mammoth = require('mammoth'), original = mammoth.convertToHtml;

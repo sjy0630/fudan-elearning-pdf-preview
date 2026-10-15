@@ -81,7 +81,24 @@ function normalizeMarkupCompatibility(document, warn) {
   return discardedImages;
 }
 
-function checkNoteExpansion(verified, documents, relationsByOwner) {
+function selectedXmlSources(verified, names, relationsByOwner) {
+  const sourceByCopyName = new Map([...names].map(([source, destination]) => [destination, source]));
+  const relationships = [...(relationsByOwner.get(verified.documentPath)?.values() || [])];
+  const selected = new Map();
+  for (const type of ['footnotes', 'endnotes', 'styles', 'numbering', 'comments']) {
+    // The locked public reader chooses the first existing target of this type,
+    // then the conventional path if none exists. It does not check MIME/suffix.
+    // Internal targets in the copy are absolute, verified existing ZIP keys;
+    // external non-image/link relationships have already been removed.
+    const relation = relationships.find(entry => !entry.external && kind(entry.type) === type && sourceByCopyName.has(names.get(entry.target)));
+    const source = relation ? relation.target : sourceByCopyName.get(`word/${type}.xml`);
+    if (source !== undefined && !verified.xmlParts.has(source)) fail(`转换 XML 来源未通过验证（${type}）`);
+    selected.set(type, source);
+  }
+  return selected;
+}
+
+function checkNoteExpansion(verified, documents, selectedSources) {
   const references = new Map();
   const pending = [documents.get(verified.documentPath).documentElement];
   while (pending.length) {
@@ -94,9 +111,7 @@ function checkNoteExpansion(verified, documents, relationsByOwner) {
   }
   let work = 0, bytes = 0, images = 0;
   for (const type of ['footnote', 'endnote']) {
-    const relation = [...(relationsByOwner.get(verified.documentPath)?.values() || [])].find(entry => !entry.external && kind(entry.type) === `${type}s`);
-    // Match the public converter's conventional fallback when no related part exists.
-    const document = documents.get(relation?.target || `word/${type}s.xml`);
+    const document = documents.get(selectedSources.get(`${type}s`));
     if (!document) continue;
     const notes = new Map();
     for (const node of document.documentElement.childNodes) if (node.nodeType === 1 && WORD.has(node.namespaceURI) && node.localName === type && !['separator', 'continuationSeparator'].includes(wordAttribute(node, 'type'))) notes.set(wordAttribute(node, 'id'), node);
@@ -270,6 +285,7 @@ function conversionCopy(verified, warn) {
       if (!entry.external) node.setAttribute('Target', `/${names.get(entry.target)}${entry.fragment ? '#' + entry.fragment : ''}`);
     }
   }
+  const selectedSources = selectedXmlSources(verified, names, relationsByOwner);
   for (const [name, doc] of documents) {
     prepareWordAttributesAndFields(doc);
     const relationships = relationsByOwner.get(name) || new Map();
@@ -320,7 +336,7 @@ function conversionCopy(verified, warn) {
       }
     }
   }
-  checkNoteExpansion(verified, documents, relationsByOwner);
+  checkNoteExpansion(verified, documents, selectedSources);
   const parts = new Map(); let total = 0;
   const serializer = new XMLSerializer();
   for (const [name, original] of verified.parts) {
