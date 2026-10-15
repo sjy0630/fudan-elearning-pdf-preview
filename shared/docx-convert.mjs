@@ -7,6 +7,7 @@ import { DOCX_LIMITS } from './docx-policy.mjs';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
 const RS = 'http://purl.oclc.org/ooxml/officeDocument/relationships/';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
+const MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
 const WORD = new Set(['http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'http://purl.oclc.org/ooxml/wordprocessingml/main']);
 const encoder = new TextEncoder();
 const IMAGE_WARNING = '部分图片暂不支持预览，已显示占位说明。';
@@ -42,6 +43,43 @@ const wordAttribute = (node, name) => {
   return '';
 };
 const drawingImage = node => (/\/drawingml\/(?:2006\/)?main$/.test(node.namespaceURI || '') && node.localName === 'blip') || (node.namespaceURI === 'urn:schemas-microsoft-com:vml' && node.localName === 'imagedata');
+
+function normalizeMarkupCompatibility(document, warn) {
+  const pending = [document.documentElement];
+  let discardedImages = 0;
+  while (pending.length) {
+    const node = pending.pop();
+    if (node.nodeType === 1 && node.namespaceURI === MC && node.localName === 'AlternateContent') {
+      // The locked public converter selects the first direct MC Fallback and
+      // discards Choice. Canonicalize retained fallbacks recursively, before
+      // inspecting their notes, styles, fields or attributes. This moves only
+      // existing verified nodes and cannot expand the source tree.
+      const fallback = [...node.childNodes].find(child => child.nodeType === 1 && child.namespaceURI === MC && child.localName === 'Fallback');
+      const retained = fallback ? [...fallback.childNodes] : [];
+      // Keep the source image-reference budget even for discarded branches.
+      // Discarded subtrees are disjoint and scanned once, so work stays linear.
+      const discarded = [...node.childNodes].filter(child => child !== fallback);
+      while (discarded.length) {
+        const child = discarded.pop();
+        if (child.nodeType === 1 && drawingImage(child)) discardedImages++;
+        for (let nested = child.lastChild; nested; nested = nested.previousSibling) discarded.push(nested);
+      }
+      warn(CONVERSION_WARNING);
+      const parent = node.parentNode;
+      if (parent.nodeType === 9) {
+        if (retained.length !== 1 || retained[0].nodeType !== 1) fail('转换副本兼容性回退根无效');
+        parent.replaceChild(retained[0], node);
+      } else {
+        for (const child of retained) parent.insertBefore(child, node);
+        parent.removeChild(node);
+      }
+      for (let i = retained.length - 1; i >= 0; i--) pending.push(retained[i]);
+      continue;
+    }
+    for (let child = node.lastChild; child; child = child.previousSibling) pending.push(child);
+  }
+  return discardedImages;
+}
 
 function checkNoteExpansion(verified, documents, relationsByOwner) {
   const references = new Map();
@@ -104,7 +142,13 @@ function prepareWordAttributesAndFields(document) {
         if (values.has(attr.localName) && values.get(attr.localName) !== attr.value) fail('转换副本 Word 属性存在歧义');
         values.set(attr.localName, attr.value);
       }
-      if (node.localName === 'instrText') instructions.push(node);
+      if (node.localName === 'instrText') {
+        // The public reader accepts text-only instructions. Reject nested
+        // elements before textContent can duplicate their text at every depth;
+        // genuine MC fallback text has already been lifted into this node.
+        for (const child of node.childNodes) if (child.nodeType === 1) fail('转换副本字段指令结构不支持');
+        instructions.push(node);
+      }
       if (node.localName === 'fldChar') {
         const type = wordAttribute(node, 'fldCharType');
         if (type === 'begin') clearNavigation();
@@ -187,6 +231,9 @@ function checkOutputNodes(html) {
 function conversionCopy(verified, warn) {
   const { names, owners } = conversionNames(verified);
   const documents = new Map([...verified.xmlParts].map(([name, source]) => [name, parseCopy(source)]));
+  let imageReferences = 0;
+  for (const document of documents.values()) imageReferences += normalizeMarkupCompatibility(document, warn);
+  if (imageReferences > DOCX_LIMITS.images) fail('图片引用数超过限制（200）');
   const lookup = contentTypeLookup(documents.get('[Content_Types].xml'));
   const typesRoot = documents.get('[Content_Types].xml').documentElement;
   const overrides = new Map();
@@ -209,15 +256,20 @@ function conversionCopy(verified, warn) {
   }
   const relationsByOwner = new Map();
   for (const [name, entries] of verified.relationships) {
-    relationsByOwner.set(owners.get(name), new Map(entries.map(entry => [entry.id, entry])));
-    const nodes = documents.get(name).getElementsByTagNameNS(REL, 'Relationship');
+    const usable = entries.filter(entry => !entry.external || ['hyperlink', 'image'].includes(kind(entry.type)));
+    relationsByOwner.set(owners.get(name), new Map(usable.map(entry => [entry.id, entry])));
+    const nodes = [...documents.get(name).getElementsByTagNameNS(REL, 'Relationship')];
     for (const node of nodes) {
       const entry = entries.find(entry => entry.id === node.getAttribute('Id'));
+      // Mammoth's part lookup ignores TargetMode and can resolve an external
+      // notes/styles target to an existing ZIP key. Remove those relationships
+      // from the copy and the preflight lookup together. External image/link
+      // metadata remains solely for the existing inert placeholder handling.
+      if (entry.external && !['hyperlink', 'image'].includes(kind(entry.type))) { node.parentNode.removeChild(node); warn(CONVERSION_WARNING); continue; }
       if (entry.type.startsWith(RS)) node.setAttribute('Type', R + entry.type.slice(RS.length));
       if (!entry.external) node.setAttribute('Target', `/${names.get(entry.target)}${entry.fragment ? '#' + entry.fragment : ''}`);
     }
   }
-  let imageReferences = 0;
   for (const [name, doc] of documents) {
     prepareWordAttributesAndFields(doc);
     const relationships = relationsByOwner.get(name) || new Map();

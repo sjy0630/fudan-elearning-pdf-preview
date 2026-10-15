@@ -10,6 +10,13 @@ const api = async () => fs.existsSync(file) ? import(pathToFileURL(file).href) :
 const fixture = name => fs.readFileSync(path.join(__dirname, 'fixtures/docx', name));
 const helpers = () => import('../scripts/docx-fixtures.mjs');
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
+function wrapFallback(document, node, depth = 1, namespace = MC) {
+  for (let i = 0; i < depth; i++) {
+    const alternate = document.createElementNS(namespace, 'mc:AlternateContent'), fallback = document.createElementNS(namespace, 'mc:Fallback');
+    node.parentNode.replaceChild(alternate, node); fallback.appendChild(node); alternate.appendChild(fallback); node = alternate;
+  }
+}
 function convertInCappedChild(bytes) {
   const script = `
     import fs from 'node:fs';
@@ -191,11 +198,12 @@ test('conversion rejects more than 50000 output nodes even below the HTML byte l
 test('repeated large footnotes and endnotes are refused before Mammoth materializes output', async () => {
   const mammoth = require('mammoth'), original = mammoth.convertToHtml;
   const h = await helpers(), m = await api();
-  for (const type of ['footnote', 'endnote']) {
+  for (const type of ['footnote', 'endnote']) for (const depth of [0, 1, 3]) {
     const parts = await h.readFixtureParts(); let calls = 0, verified = false;
     h.editFixtureXml(parts, `word/${type}s.xml`, doc => {
       const note = [...doc.getElementsByTagName(`w:${type}`)].find(node => node.getAttribute('w:id') === '1');
       note.getElementsByTagName('w:t')[0].textContent = '甲'.repeat(500000);
+      wrapFallback(doc, note, depth);
     });
     h.editFixtureXml(parts, 'word/document.xml', doc => {
       const p = doc.getElementsByTagName('w:p')[0], reference = doc.getElementsByTagName(`w:${type}Reference`)[0];
@@ -211,6 +219,51 @@ test('repeated large footnotes and endnotes are refused before Mammoth materiali
     const events = convertInCappedChild(h.zipFixtureParts(parts, 0));
     assert.equal(events[0], 'verified'); assert.match(events[1].error, /展开.*预览限制/);
   }
+});
+
+test('MC fallback notes and paragraphs retain supported content while Choice and missing fallbacks are inert', async () => {
+  const result = await convertVariant((parts, h) => {
+    for (const type of ['footnote', 'endnote']) h.editFixtureXml(parts, `word/${type}s.xml`, doc => {
+      const note = [...doc.getElementsByTagName(`w:${type}`)].find(node => node.getAttribute('w:id') === '1');
+      wrapFallback(doc, note, 3);
+      const root = doc.documentElement;
+      // Root compatibility containers are legal in auxiliary XML parts too.
+      const alternate = doc.createElementNS(MC, 'mc:AlternateContent'), fallback = doc.createElementNS(MC, 'mc:Fallback');
+      doc.replaceChild(alternate, root); fallback.appendChild(root); alternate.appendChild(fallback);
+    });
+    h.editFixtureXml(parts, 'word/document.xml', doc => {
+      const p = doc.getElementsByTagName('w:p')[0]; wrapFallback(doc, p, 2);
+      const alternate = doc.createElementNS(MC, 'mc:AlternateContent'), choice = doc.createElementNS(MC, 'mc:Choice');
+      const hidden = p.cloneNode(true); hidden.textContent = '不应出现的 Choice 内容'; choice.appendChild(hidden); alternate.appendChild(choice);
+      doc.getElementsByTagName('w:body')[0].appendChild(alternate);
+      const fallbackAlternate = p.parentNode.parentNode, discardedChoice = choice.cloneNode(true); fallbackAlternate.insertBefore(discardedChoice, fallbackAlternate.firstChild);
+      for (const type of ['footnote', 'endnote']) {
+        const reference = doc.getElementsByTagName(`w:${type}Reference`)[0];
+        for (let i = 0; i < 2; i++) { const r = doc.createElementNS(W, 'w:r'); r.appendChild(reference.cloneNode(true)); p.appendChild(r); }
+      }
+    });
+  });
+  assert.match(result.html, /中文课程阅读样本/); assert.doesNotMatch(result.html, /不应出现的 Choice 内容/);
+  assert.equal(result.html.split('脚注：课程材料').length - 1, 3); assert.equal(result.html.split('尾注：原创图片').length - 1, 3);
+  assert.ok(result.warnings.includes('部分文档格式无法完整转换，预览可能有所省略。'));
+});
+
+test('MC-style local names in arbitrary namespaces cannot expose hidden note bodies', async () => {
+  await assert.rejects(convertVariant((parts, h) => h.editFixtureXml(parts, 'word/footnotes.xml', doc => {
+    const note = [...doc.getElementsByTagName('w:footnote')].find(node => node.getAttribute('w:id') === '1');
+    wrapFallback(doc, note, 1, 'urn:unrelated-mc-names');
+  })), /文档转换失败/);
+});
+
+test('discarded MC Choice images remain subject to the original source reference budget', async () => {
+  const h = await helpers(), parts = await h.readFixtureParts();
+  h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const p = doc.getElementsByTagName('w:p')[0], drawing = doc.getElementsByTagName('w:drawing')[0];
+    const alternate = doc.createElementNS(MC, 'mc:AlternateContent'), choice = doc.createElementNS(MC, 'mc:Choice');
+    for (let i = 0; i < 201; i++) { const r = doc.createElementNS(W, 'w:r'); r.appendChild(drawing.cloneNode(true)); choice.appendChild(r); }
+    alternate.appendChild(choice); p.appendChild(alternate);
+  });
+  await assert.rejects((await api()).convertDocx(h.zipFixtureParts(parts)), /图片引用数.*200/);
 });
 
 test('repeated empty formatting is bounded before Mammoth even when HTML could simplify', async () => {
@@ -289,6 +342,7 @@ test('large shared style names are normalized before diagnostic repetition in Ma
     const style = doc.createElementNS(W, 'w:style'), name = doc.createElementNS(W, 'w:name');
     style.setAttributeNS(W, 'w:type', 'paragraph'); style.setAttributeNS(W, 'w:styleId', 'LargeStyle');
     name.setAttributeNS(W, 'w:val', 'X'.repeat(500000)); style.appendChild(name); doc.documentElement.appendChild(style);
+    wrapFallback(doc, name, 3); wrapFallback(doc, style, 2);
   });
   h.editFixtureXml(parts, 'word/document.xml', doc => {
     const body = doc.getElementsByTagName('w:body')[0];
@@ -310,6 +364,87 @@ test('large shared style names are normalized before diagnostic repetition in Ma
   assert.ok(copiedName && !copiedName.includes('X'.repeat(100)), 'shared diagnostic names must be bounded before conversion');
   const events = convertInCappedChild(h.zipFixtureParts(parts, 0));
   assert.equal(events[0], 'verified'); assert.deepEqual(events[1], { result: true, ordinaryText: 400 });
+});
+
+test('MC Choice cannot hide a hyperlink field from navigation removal', async () => {
+  const url = 'https://example.test/' + 'x'.repeat(1000);
+  const result = await convertVariant((parts, h) => h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const p = doc.getElementsByTagName('w:p')[0];
+    const add = (name, value) => {
+      const r = doc.createElementNS(W, 'w:r'), child = doc.createElementNS(W, 'w:' + name);
+      if (name === 'fldChar') child.setAttributeNS(W, 'w:fldCharType', value); else child.textContent = value;
+      r.appendChild(child); p.appendChild(r); return child;
+    };
+    add('fldChar', 'begin');
+    const instruction = add('instrText', ''), alternate = doc.createElementNS(MC, 'mc:AlternateContent'), choice = doc.createElementNS(MC, 'mc:Choice'), fallback = doc.createElementNS(MC, 'mc:Fallback');
+    choice.appendChild(doc.createTextNode('NOT_A_HYPERLINK ')); fallback.appendChild(doc.createTextNode(` HYPERLINK "${url}"`)); alternate.appendChild(choice); alternate.appendChild(fallback); instruction.appendChild(alternate);
+    add('fldChar', 'separate'); for (let i = 0; i < 10; i++) add('t', '字段显示文本'); add('fldChar', 'end');
+  }));
+  assert.equal(result.html.split('字段显示文本').length - 1, 10); assert.ok(!result.html.includes(url));
+});
+
+test('nested instruction elements cannot multiply textContent allocations before conversion', async () => {
+  const h = await helpers(), parts = await h.readFixtureParts(), m = await api();
+  h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const p = doc.getElementsByTagName('w:p')[0], r = doc.createElementNS(W, 'w:r');
+    let instruction = doc.createElementNS(W, 'w:instrText'); instruction.textContent = '字段'.repeat(10000);
+    for (let i = 0; i < 4; i++) { const outer = doc.createElementNS(W, 'w:instrText'); outer.appendChild(instruction); instruction = outer; }
+    r.appendChild(instruction); p.appendChild(r);
+  });
+  const mammoth = require('mammoth'), original = mammoth.convertToHtml; let calls = 0;
+  mammoth.convertToHtml = () => { calls++; throw new Error('unsafe conversion boundary reached'); };
+  try { await assert.rejects(m.convertDocx(h.zipFixtureParts(parts, 0)), /字段指令结构/); assert.equal(calls, 0); }
+  finally { mammoth.convertToHtml = original; }
+});
+
+test('external non-hyperlink relationships cannot select un-preflighted package notes or styles', async () => {
+  const h = await helpers(), m = await api(), mammoth = require('mammoth'), original = mammoth.convertToHtml;
+  for (const type of ['footnotes', 'endnotes', 'styles']) {
+    const parts = await h.readFixtureParts();
+    parts.set('word/large.xml', parts.get(`word/${type}.xml`));
+    h.editFixtureXml(parts, 'word/large.xml', doc => {
+      if (type === 'styles') doc.getElementsByTagName('w:name')[0].setAttributeNS(W, 'w:val', 'X'.repeat(500000));
+      else [...doc.getElementsByTagName(`w:${type.slice(0, -1)}`)].find(node => node.getAttribute('w:id') === '1').getElementsByTagName('w:t')[0].textContent = '甲'.repeat(500000);
+    });
+    h.editFixtureXml(parts, '[Content_Types].xml', doc => {
+      const original = [...doc.getElementsByTagName('Override')].find(node => node.getAttribute('PartName') === `/word/${type}.xml`);
+      const extra = original.cloneNode(true); extra.setAttribute('PartName', '/word/large.xml'); doc.documentElement.appendChild(extra);
+    });
+    h.editFixtureXml(parts, 'word/_rels/document.xml.rels', doc => {
+      const relation = [...doc.getElementsByTagName('Relationship')].find(node => node.getAttribute('Type') === h.R + type);
+      relation.setAttribute('TargetMode', 'External'); relation.setAttribute('Target', '/word/large.xml');
+    });
+    if (type !== 'styles') h.editFixtureXml(parts, 'word/document.xml', doc => {
+      const p = doc.getElementsByTagName('w:p')[0], reference = doc.getElementsByTagName(`w:${type.slice(0, -1)}Reference`)[0];
+      for (let i = 0; i < 399; i++) { const r = doc.createElementNS(W, 'w:r'); r.appendChild(reference.cloneNode(true)); p.appendChild(r); }
+    });
+    let copiedRelationships;
+    mammoth.convertToHtml = async input => {
+      const { verifyDocxPackage } = await import('../shared/docx-package.mjs');
+      copiedRelationships = verifyDocxPackage(input.buffer).relationships.get('word/_rels/document.xml.rels');
+      throw new Error('stop at the public conversion boundary');
+    };
+    try { await assert.rejects(m.convertDocx(h.zipFixtureParts(parts, 0)), /文档转换失败/); }
+    finally { mammoth.convertToHtml = original; }
+    assert.ok(copiedRelationships && !copiedRelationships.some(entry => entry.external && entry.type === h.R + type));
+    const events = convertInCappedChild(h.zipFixtureParts(parts, 0));
+    assert.equal(events[0], 'verified'); assert.equal(events[1].result, true);
+  }
+});
+
+test('discarding an external note source preserves a later valid internal relocated source', async () => {
+  const result = await convertVariant(async (parts, h) => {
+    await relocateFixtureParts(parts, new Map([
+      ['word/footnotes.xml', 'notes/actual.xml'], ['word/_rels/footnotes.xml.rels', 'notes/_rels/actual.xml.rels'],
+    ]), h);
+    h.editFixtureXml(parts, 'word/_rels/document.xml.rels', doc => {
+      const internal = [...doc.getElementsByTagName('Relationship')].find(node => node.getAttribute('Type') === h.R + 'footnotes');
+      const external = internal.cloneNode(true); external.setAttribute('Id', 'externalNoteSource'); external.setAttribute('TargetMode', 'External'); external.setAttribute('Target', '/word/endnotes.xml');
+      doc.documentElement.insertBefore(external, internal);
+    });
+  });
+  assert.match(result.html, /脚注：课程材料/); assert.match(result.html, /尾注：原创图片/);
+  assert.ok(result.warnings.includes('部分文档格式无法完整转换，预览可能有所省略。'));
 });
 
 test('conflicting Word namespace note and style attributes cannot bypass the preflight', async () => {
