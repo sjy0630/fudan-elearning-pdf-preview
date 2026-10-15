@@ -3,12 +3,31 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { spawnSync } = require('node:child_process');
 
 const file = path.join(__dirname, '../shared/docx-convert.mjs');
 const api = async () => fs.existsSync(file) ? import(pathToFileURL(file).href) : {};
 const fixture = name => fs.readFileSync(path.join(__dirname, 'fixtures/docx', name));
 const helpers = () => import('../scripts/docx-fixtures.mjs');
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+function convertInCappedChild(bytes) {
+  const script = `
+    import fs from 'node:fs';
+    import { convertDocx } from ${JSON.stringify(pathToFileURL(file).href)};
+    const events = [];
+    try {
+      const result = await convertDocx(new Uint8Array(fs.readFileSync(0)), { onVerified() { events.push('verified'); } });
+      events.push({ result: true, ordinaryText: result.html.split('普通正文').length - 1 });
+    } catch (error) { events.push({ error: error.message }); }
+    process.stdout.write(JSON.stringify(events));
+  `;
+  const child = spawnSync('/bin/sh', ['-c', 'ulimit -c 0\nexec "$@"', 'docx-capped-child', process.execPath, '--max-old-space-size=128', '--input-type=module', '-e', script], {
+    input: bytes, encoding: 'utf8', timeout: 20000, maxBuffer: 16384,
+  });
+  assert.equal(child.error, undefined); assert.equal(child.signal, null);
+  assert.equal(child.status, 0, child.stderr);
+  return JSON.parse(child.stdout);
+}
 const convertVariant = async edit => {
   const h = await helpers();
   const parts = await h.readFixtureParts();
@@ -167,6 +186,156 @@ test('conversion rejects more than 50000 output nodes even below the HTML byte l
   });
   await assert.rejects((await api()).convertDocx(h.zipFixtureParts(parts), { onVerified() { verified++; } }), /转换 HTML 节点.*50000/);
   assert.equal(verified, 1);
+});
+
+test('repeated large footnotes and endnotes are refused before Mammoth materializes output', async () => {
+  const mammoth = require('mammoth'), original = mammoth.convertToHtml;
+  const h = await helpers(), m = await api();
+  for (const type of ['footnote', 'endnote']) {
+    const parts = await h.readFixtureParts(); let calls = 0, verified = false;
+    h.editFixtureXml(parts, `word/${type}s.xml`, doc => {
+      const note = [...doc.getElementsByTagName(`w:${type}`)].find(node => node.getAttribute('w:id') === '1');
+      note.getElementsByTagName('w:t')[0].textContent = '甲'.repeat(500000);
+    });
+    h.editFixtureXml(parts, 'word/document.xml', doc => {
+      const p = doc.getElementsByTagName('w:p')[0], reference = doc.getElementsByTagName(`w:${type}Reference`)[0];
+      for (let i = 0; i < 399; i++) { const run = doc.createElementNS(W, 'w:r'); run.appendChild(reference.cloneNode(true)); p.appendChild(run); }
+    });
+    // Replace only the allocation boundary: the real verifier and preflight run.
+    // A regression must fail safely instead of allocating ~600 MB in this test.
+    mammoth.convertToHtml = () => { calls++; throw new Error('unsafe conversion boundary reached'); };
+    try {
+      await assert.rejects(m.convertDocx(h.zipFixtureParts(parts, 0), { async onVerified() { await Promise.resolve(); verified = true; } }), /展开.*预览限制/);
+      assert.equal(verified, true); assert.equal(calls, 0);
+    } finally { mammoth.convertToHtml = original; }
+    const events = convertInCappedChild(h.zipFixtureParts(parts, 0));
+    assert.equal(events[0], 'verified'); assert.match(events[1].error, /展开.*预览限制/);
+  }
+});
+
+test('repeated empty formatting is bounded before Mammoth even when HTML could simplify', async () => {
+  const h = await helpers(), parts = await h.readFixtureParts(), m = await api();
+  h.editFixtureXml(parts, 'word/footnotes.xml', doc => {
+    const note = [...doc.getElementsByTagName('w:footnote')].find(node => node.getAttribute('w:id') === '1');
+    const p = note.getElementsByTagName('w:p')[0];
+    for (let i = 0; i < 300; i++) {
+      const r = doc.createElementNS(W, 'w:r'), props = doc.createElementNS(W, 'w:rPr');
+      props.appendChild(doc.createElementNS(W, 'w:b')); r.appendChild(props); p.appendChild(r);
+    }
+  });
+  h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const p = doc.getElementsByTagName('w:p')[0], reference = doc.getElementsByTagName('w:footnoteReference')[0];
+    for (let i = 0; i < 399; i++) { const run = doc.createElementNS(W, 'w:r'); run.appendChild(reference.cloneNode(true)); p.appendChild(run); }
+  });
+  const mammoth = require('mammoth'), original = mammoth.convertToHtml; let calls = 0;
+  mammoth.convertToHtml = () => { calls++; throw new Error('unsafe conversion boundary reached'); };
+  try {
+    await assert.rejects(m.convertDocx(h.zipFixtureParts(parts, 0)), /展开.*复杂度.*预览限制/); assert.equal(calls, 0);
+  } finally { mammoth.convertToHtml = original; }
+});
+
+test('ordinary repeated footnotes and endnotes retain every referenced body', async () => {
+  const result = await convertVariant((parts, h) => h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const p = doc.getElementsByTagName('w:p')[0];
+    for (const type of ['footnote', 'endnote']) {
+      const reference = doc.getElementsByTagName(`w:${type}Reference`)[0];
+      for (let i = 0; i < 3; i++) { const r = doc.createElementNS(W, 'w:r'); r.appendChild(reference.cloneNode(true)); p.appendChild(r); }
+    }
+  }));
+  assert.equal(result.html.split('脚注：课程材料').length - 1, 4);
+  assert.equal(result.html.split('尾注：原创图片').length - 1, 4);
+});
+
+test('DrawingML navigation is removed before repeated images can copy long relationship targets', async () => {
+  const target = 'https://example.test/' + 'x'.repeat(10000);
+  const result = await convertVariant((parts, h) => {
+    h.editFixtureXml(parts, 'word/_rels/document.xml.rels', doc => {
+      const link = doc.createElement('Relationship');
+      for (const [name, value] of Object.entries({ Id: 'imageLink', Type: h.R + 'hyperlink', Target: target, TargetMode: 'External' })) link.setAttribute(name, value);
+      doc.documentElement.appendChild(link);
+    });
+    h.editFixtureXml(parts, 'word/document.xml', doc => {
+      const drawing = doc.getElementsByTagName('w:drawing')[0], props = drawing.getElementsByTagName('wp:docPr')[0];
+      for (const type of ['hlinkClick', 'hlinkHover']) {
+        const link = doc.createElementNS('http://schemas.openxmlformats.org/drawingml/2006/main', 'a:' + type); link.setAttributeNS(h.R.slice(0, -1), 'r:id', 'imageLink'); props.appendChild(link);
+      }
+      const p = doc.getElementsByTagName('w:p')[0];
+      for (let i = 0; i < 3; i++) { const r = doc.createElementNS(W, 'w:r'); r.appendChild(drawing.cloneNode(true)); p.appendChild(r); }
+    });
+  });
+  assert.equal(result.images.length, 5); assert.ok(!result.html.includes(target));
+  assert.equal(result.images.filter(image => image.mime === 'image/png').length, 4);
+});
+
+test('split complex hyperlink fields retain display text without repeating their URL', async () => {
+  const url = 'https://example.test/' + 'x'.repeat(10000);
+  const result = await convertVariant((parts, h) => h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const p = doc.getElementsByTagName('w:p')[0];
+    const add = (name, value) => {
+      const r = doc.createElementNS(W, 'w:r'), child = doc.createElementNS(W, 'w:' + name);
+      if (name === 'fldChar') child.setAttributeNS(W, 'w:fldCharType', value); else child.textContent = value;
+      r.appendChild(child); p.appendChild(r);
+    };
+    add('fldChar', 'begin'); add('instrText', ' HYPER'); add('instrText', `LINK "${url}"`); add('fldChar', 'separate');
+    for (let i = 0; i < 10; i++) add('t', '字段显示文本');
+    add('fldChar', 'end');
+  }));
+  assert.equal(result.html.split('字段显示文本').length - 1, 10); assert.ok(!result.html.includes(url));
+});
+
+test('large shared style names are normalized before diagnostic repetition in Mammoth', async () => {
+  const h = await helpers(), parts = await h.readFixtureParts(), m = await api();
+  h.editFixtureXml(parts, 'word/styles.xml', doc => {
+    const style = doc.createElementNS(W, 'w:style'), name = doc.createElementNS(W, 'w:name');
+    style.setAttributeNS(W, 'w:type', 'paragraph'); style.setAttributeNS(W, 'w:styleId', 'LargeStyle');
+    name.setAttributeNS(W, 'w:val', 'X'.repeat(500000)); style.appendChild(name); doc.documentElement.appendChild(style);
+  });
+  h.editFixtureXml(parts, 'word/document.xml', doc => {
+    const body = doc.getElementsByTagName('w:body')[0];
+    for (let i = 0; i < 400; i++) {
+      const p = doc.createElementNS(W, 'w:p'), props = doc.createElementNS(W, 'w:pPr'), style = doc.createElementNS(W, 'w:pStyle');
+      style.setAttributeNS(W, 'w:val', 'LargeStyle'); props.appendChild(style); p.appendChild(props);
+      const r = doc.createElementNS(W, 'w:r'), t = doc.createElementNS(W, 'w:t'); t.textContent = '普通正文'; r.appendChild(t); p.appendChild(r); body.appendChild(p);
+    }
+  });
+  const mammoth = require('mammoth'), original = mammoth.convertToHtml;
+  let copiedName;
+  mammoth.convertToHtml = async input => {
+    const { verifyDocxPackage } = await import('../shared/docx-package.mjs');
+    copiedName = verifyDocxPackage(input.buffer).xmlParts.get('word/styles.xml');
+    throw new Error('stop at the public conversion boundary');
+  };
+  try { await assert.rejects(m.convertDocx(h.zipFixtureParts(parts, 0)), /文档转换失败/); }
+  finally { mammoth.convertToHtml = original; }
+  assert.ok(copiedName && !copiedName.includes('X'.repeat(100)), 'shared diagnostic names must be bounded before conversion');
+  const events = convertInCappedChild(h.zipFixtureParts(parts, 0));
+  assert.equal(events[0], 'verified'); assert.deepEqual(events[1], { result: true, ordinaryText: 400 });
+});
+
+test('conflicting Word namespace note and style attributes cannot bypass the preflight', async () => {
+  const h = await helpers(), m = await api(), strict = 'http://purl.oclc.org/ooxml/wordprocessingml/main';
+  const mammoth = require('mammoth'), original = mammoth.convertToHtml;
+  for (const target of ['reference', 'note', 'style']) for (const shadow of ['', '2']) {
+    const parts = await h.readFixtureParts(); let calls = 0;
+    const filename = target === 'reference' ? 'word/document.xml' : target === 'note' ? 'word/footnotes.xml' : 'word/styles.xml';
+    h.editFixtureXml(parts, filename, doc => {
+      const node = target === 'reference' ? doc.getElementsByTagName('w:footnoteReference')[0] : target === 'note' ? [...doc.getElementsByTagName('w:footnote')].find(node => node.getAttribute('w:id') === '1') : doc.getElementsByTagName('w:name')[0];
+      node.setAttributeNS(strict, 'strict:' + (target === 'style' ? 'val' : 'id'), shadow);
+    });
+    mammoth.convertToHtml = () => { calls++; throw new Error('unsafe conversion boundary reached'); };
+    try { await assert.rejects(m.convertDocx(h.zipFixtureParts(parts)), /Word 属性.*歧义/); assert.equal(calls, 0); }
+    finally { mammoth.convertToHtml = original; }
+  }
+});
+
+test('normalizing diagnostic style names preserves supported style IDs and reports a fixed warning', async () => {
+  const result = await convertVariant((parts, h) => h.editFixtureXml(parts, 'word/styles.xml', doc => {
+    const style = [...doc.getElementsByTagName('w:style')].find(node => node.getAttribute('w:styleId') === 'Heading1');
+    style.getElementsByTagName('w:name')[0].setAttributeNS(W, 'w:val', 'X'.repeat(1000));
+  }));
+  assert.match(result.html, /<h1>第一章 本地阅读<\/h1>/);
+  assert.ok(result.warnings.includes('部分文档格式无法完整转换，预览可能有所省略。'));
+  assert.ok(result.warnings.every(warning => !warning.includes('XXXXX')));
 });
 
 test('output budget includes text and attributes, accepts exactly 50000 and rejects one more', async () => {

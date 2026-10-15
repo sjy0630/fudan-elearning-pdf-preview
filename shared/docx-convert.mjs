@@ -14,7 +14,107 @@ const CONVERSION_WARNING = '部分文档格式无法完整转换，预览可能�
 const fail = message => { throw new Error(`DOCX ${message}。`); };
 const kind = type => type.startsWith(R) ? type.slice(R.length) : type.startsWith(RS) ? type.slice(RS.length) : '';
 const decodeName = name => { for (let i = 0; i < 16 && /%[0-9a-f]{2}/i.test(name); i++) name = decodeURIComponent(name); return name; };
+// A basic paragraph/run/text/text-node uses four source nodes. This headroom
+// accepts the exact output-node boundary, while bounding the intermediate work
+// of repeated notes, including empty formatting later simplified by Mammoth.
+const NOTE_EXPANSION_WORK = DOCX_LIMITS.nodes * 4;
 let sequence = 0;
+
+function boundedUtf8Length(value, limit, escaped = false) {
+  let bytes = 0;
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (escaped && code === 38) bytes += 5;
+    else if (escaped && (code === 60 || code === 62)) bytes += 4;
+    else if (escaped && code === 34) bytes += 6;
+    else if (escaped && code === 13) bytes += 5;
+    else if (code < 0x80) bytes++;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && value.charCodeAt(i + 1) >= 0xdc00 && value.charCodeAt(i + 1) <= 0xdfff) { bytes += 4; i++; }
+    else bytes += 3;
+    if (bytes > limit) return limit + 1;
+  }
+  return bytes;
+}
+
+const wordAttribute = (node, name) => {
+  for (const namespace of WORD) if (node.hasAttributeNS(namespace, name)) return node.getAttributeNS(namespace, name);
+  return '';
+};
+const drawingImage = node => (/\/drawingml\/(?:2006\/)?main$/.test(node.namespaceURI || '') && node.localName === 'blip') || (node.namespaceURI === 'urn:schemas-microsoft-com:vml' && node.localName === 'imagedata');
+
+function checkNoteExpansion(verified, documents, relationsByOwner) {
+  const references = new Map();
+  const pending = [documents.get(verified.documentPath).documentElement];
+  while (pending.length) {
+    const node = pending.pop();
+    if (node.nodeType === 1 && WORD.has(node.namespaceURI) && ['footnoteReference', 'endnoteReference'].includes(node.localName)) {
+      const key = `${node.localName.slice(0, -9)}:${wordAttribute(node, 'id')}`;
+      references.set(key, (references.get(key) || 0) + 1);
+    }
+    for (let child = node.lastChild; child; child = child.previousSibling) pending.push(child);
+  }
+  let work = 0, bytes = 0, images = 0;
+  for (const type of ['footnote', 'endnote']) {
+    const relation = [...(relationsByOwner.get(verified.documentPath)?.values() || [])].find(entry => !entry.external && kind(entry.type) === `${type}s`);
+    // Match the public converter's conventional fallback when no related part exists.
+    const document = documents.get(relation?.target || `word/${type}s.xml`);
+    if (!document) continue;
+    const notes = new Map();
+    for (const node of document.documentElement.childNodes) if (node.nodeType === 1 && WORD.has(node.namespaceURI) && node.localName === type && !['separator', 'continuationSeparator'].includes(wordAttribute(node, 'type'))) notes.set(wordAttribute(node, 'id'), node);
+    for (const [id, note] of notes) {
+      const count = references.get(`${type}:${id}`) || 0;
+      if (!count) continue;
+      const nodes = [note];
+      while (nodes.length) {
+        const node = nodes.pop();
+        work += count;
+        if (work > NOTE_EXPANSION_WORK) fail('注释展开复杂度超过预览限制（转换 HTML 节点预算 50000）');
+        if (node.nodeType === 3 || node.nodeType === 4) bytes += count * boundedUtf8Length(node.data, DOCX_LIMITS.htmlBytes, true);
+        for (const attr of node.attributes || []) bytes += count * boundedUtf8Length(attr.value, DOCX_LIMITS.htmlBytes, true);
+        if (bytes > DOCX_LIMITS.htmlBytes) fail('注释展开内容超过预览限制（转换 HTML 预算 4 MiB）');
+        if (node.nodeType === 1 && drawingImage(node)) {
+          images += count;
+          if (images > DOCX_LIMITS.images) fail('图片引用数超过限制（200）');
+        }
+        for (let child = node.lastChild; child; child = child.previousSibling) nodes.push(child);
+      }
+    }
+  }
+  // Mammoth 1.13 snapshots main-document references before rendering note
+  // bodies. Nested references emit markers, but do not recursively append notes.
+  // Count all source nodes/attributes conservatively: final simplification may
+  // produce less output. The exact final HTML budgets still apply separately.
+}
+
+function prepareWordAttributesAndFields(document) {
+  let instructions = [];
+  const clearNavigation = () => {
+    if (/^\s*HYPERLINK(?:\s|$)/.test(instructions.map(node => node.textContent).join(''))) for (const node of instructions) node.textContent = '';
+    instructions = [];
+  };
+  const pending = [document.documentElement];
+  while (pending.length) {
+    const node = pending.pop();
+    if (node.nodeType === 1 && WORD.has(node.namespaceURI)) {
+      // Mammoth folds both Word namespaces together. Reject distinct values,
+      // including empty shadows, so preflight and conversion cannot disagree.
+      const values = new Map();
+      for (const attr of node.attributes) if (WORD.has(attr.namespaceURI)) {
+        if (values.has(attr.localName) && values.get(attr.localName) !== attr.value) fail('转换副本 Word 属性存在歧义');
+        values.set(attr.localName, attr.value);
+      }
+      if (node.localName === 'instrText') instructions.push(node);
+      if (node.localName === 'fldChar') {
+        const type = wordAttribute(node, 'fldCharType');
+        if (type === 'begin') clearNavigation();
+        if (type === 'separate' || type === 'end') clearNavigation();
+      }
+    }
+    for (let child = node.lastChild; child; child = child.previousSibling) pending.push(child);
+  }
+  clearNavigation();
+}
 
 function parseCopy(source) {
   // The verifier has already performed XML 1.0 normalization. Any CR now in
@@ -119,6 +219,7 @@ function conversionCopy(verified, warn) {
   }
   let imageReferences = 0;
   for (const [name, doc] of documents) {
+    prepareWordAttributesAndFields(doc);
     const relationships = relationsByOwner.get(name) || new Map();
     const pending = [doc.documentElement];
     while (pending.length) {
@@ -129,8 +230,18 @@ function conversionCopy(verified, warn) {
       // Queue children before unwrapping/replacing containers so every image
       // reference is counted, including those inside external hyperlinks.
       for (let child = node.lastChild; child; child = child.previousSibling) pending.push(child);
-      const image = (/\/drawingml\/(?:2006\/)?main$/.test(node.namespaceURI || '') && node.localName === 'blip') || (node.namespaceURI === 'urn:schemas-microsoft-com:vml' && node.localName === 'imagedata');
-      if (image) {
+      // Only fixed short style names have a semantic mapping in our options or
+      // Mammoth's default map. Longer names affect diagnostic text alone, which
+      // Mammoth otherwise copies once per styled paragraph/run before deduping.
+      // Preserve IDs and definitions; the public result uses fixed warnings.
+      if (WORD.has(node.namespaceURI) && node.localName === 'name' && WORD.has(node.parentNode?.namespaceURI) && node.parentNode.localName === 'style' && wordAttribute(node, 'val').length > 64) {
+        for (const namespace of WORD) if (node.hasAttributeNS(namespace, 'val')) node.setAttributeNS(namespace, node.getAttributeNodeNS(namespace, 'val').name, 'DOCX unsupported style');
+        warn(CONVERSION_WARNING);
+      }
+      // Navigation is removed by the preview; discard it before Mammoth can
+      // repeat long relationship targets once per image or field display run.
+      if (/\/drawingml\/(?:2006\/)?main$/.test(node.namespaceURI || '') && ['hlinkClick', 'hlinkHover'].includes(node.localName)) { node.parentNode.removeChild(node); continue; }
+      if (drawingImage(node)) {
         if (++imageReferences > DOCX_LIMITS.images) fail('图片引用数超过限制（200）');
         // Link-only images take Mammoth's external-file path even when their
         // relationship target is internal. Only embedded references are used.
@@ -152,14 +263,12 @@ function conversionCopy(verified, warn) {
         }
       }
       if (WORD.has(node.namespaceURI) && node.localName === 'hyperlink') {
-        const id = node.getAttributeNS(R.slice(0, -1), 'id') || node.getAttributeNS(RS.slice(0, -1), 'id');
-        if (relationships.get(id)?.external) {
-          while (node.firstChild) node.parentNode.insertBefore(node.firstChild, node);
-          node.parentNode.removeChild(node);
-        }
+        while (node.firstChild) node.parentNode.insertBefore(node.firstChild, node);
+        node.parentNode.removeChild(node);
       }
     }
   }
+  checkNoteExpansion(verified, documents, relationsByOwner);
   const parts = new Map(); let total = 0;
   const serializer = new XMLSerializer();
   for (const [name, original] of verified.parts) {
@@ -222,7 +331,7 @@ export async function convertDocx(input, { idPrefix, onVerified } = {}) {
   // HTML parsers also normalize literal CR. A reference keeps the semantic CR
   // through the later sanitizer's parse without interpreting any user markup.
   const html = result.value.replace(/\r/g, '&#13;');
-  if (encoder.encode(html).byteLength > DOCX_LIMITS.htmlBytes) fail('转换 HTML 大小超过限制（4 MiB）');
+  if (boundedUtf8Length(html, DOCX_LIMITS.htmlBytes) > DOCX_LIMITS.htmlBytes) fail('转换 HTML 大小超过限制（4 MiB）');
   checkOutputNodes(html);
   if (result.messages.length) warn(CONVERSION_WARNING);
   return { html, images, warnings };
