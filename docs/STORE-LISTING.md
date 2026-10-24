@@ -1,5 +1,7 @@
 # 商店提交材料
 
+当前更新（2026-10-24）：**1.3.0 已提交，Partner Center 显示 In review**；商店版本仍为 **1.1.1，Live，Public**。新版包校验 Complete，中英文 DOCX/图片/文本说明及新增 DOCX 搜索词已保存；审核备注提供固定示例操作方法，并明确本轮新 DOCX 界面未进行运行验证。下方是 2026-09-30 的历史文案，不应直接作为新版本功能说明。新材料与校验值见 [1.3.0 发布记录](releases/v1.3.0-candidate.md)。
+
 状态（2026-09-30）：Edge 已上架 1.1.0，[实际安装页](https://microsoftedge.microsoft.com/addons/detail/ibgcgppobifaogaodeimafhpmoonioch)。1.1.1 源码已推送扩展分支，安装包已通过 Edge 后台包验证，Chinese (China) 与 English 条目均已保存为 Complete；尚未点击 Publish 或提交审核。Chrome Web Store 与 Firefox Add-ons 尚未上架；公开 GitHub Release 仍是 1.1.0。不要将候选 ZIP 称为商店签名包。详见[更新草稿记录](releases/extension-v1.1.1-draft.md)。
 
 以下两套文案可分别粘贴到商店对应语言字段。包内 `_locales/zh_CN` 与 `_locales/en` 只提供扩展元数据；商店 zh-CN / en-US 页面须由所有者在后台单独添加和保存，不会自动随包设置，也不保证修复搜索结果。扩展阅读器和帮助界面仍为中文。

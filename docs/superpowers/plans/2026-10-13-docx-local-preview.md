@@ -10,6 +10,10 @@
 
 ---
 
+## 当前执行约定（2026-10-24）
+
+用户随后明确要求停止测试、推进上架，并于2026-10-24要求继续相关开发。以下早期任务中的测试步骤保留为历史计划，本轮不运行测试、压力样例或浏览器验证，也不将代码核对和构建称为测试通过。先完成尚缺的生命周期、隔离预览、油猴及扩展接入，生成候选安装包；保留实际未验证范围。上架授权已获得，但提交必须针对包含完整预览入口的安装包，提交审核与审核通过分别记录。
+
 ## 📋 顺序与交付门槛
 
 本计划先详细执行可独立验证的安全边界模块。其后每个安全核心、转换、界面阶段在修改前展开为独立的完整测试优先任务；下表保留完整目标，不把完成边界模块当作 DOCX 交付完成。用户已要求进入实施，使用当前功能分支连续执行，不在任务之间重复询问是否继续。
@@ -188,6 +192,12 @@ assert.equal(result.images.length, 2);
 Mammoth 还固定按 UTF-8 读取 XML，且关系部件搜索仅匹配 transitional Type。因此转换副本把全部 `xmlParts` 写成 UTF-8，Strict 的已验证标准关系 Type 归一化为 transitional Type（正文命名空间保留，Mammoth 两者均支持）。重新检查副本各 XML4MiB/合计60MiB预算；不改变下载字节。单测覆盖 UTF-16 中文正文/关系和 Strict/非默认部件路径，避免安全入口通过但转换器无声丢失内容。
 
 XML1.0预检的行结束处理只归一化CRLF/CR，保留合法U+0085/U+2028/U+2029。转换阶段须核对Mammoth实际锁定的嵌套XML解析器会否再次使用更宽的默认归一化；若会，转换副本必须以语义等价的字符引用保护这些字符（包括CDATA正文与属性），并覆盖真实转换结果。不能将不兼容的0.9解析器强行覆盖Mammoth的0.8依赖或修改node_modules；原始下载字节仍不改。
+
+实施中的真实转换探针确认：Mammoth按字面正文basename寻找关系文件，也按字面扩展名寻找图片MIME。因此转换副本仅把关系部件名规范到实际已验证owner键的`dirname/_rels/basename.rels`（根固定`_rels/.rels`），使用旧实际键到副本键的有界Map同步改写内部Target和ContentTypes Override。不能增添重复别名、改变原始验证Map或下载字节；检查重命名冲突与项目/字节限额。必要时为已验证图片添加精确的MIME Override，避免合法编码扩展名或大写WebP丢图。转换HTML在返回前另检查50,000节点预算（元素/文本等及属性，不计项目临时包装），先线性标签界限再公共解析器计数；浏览器清理阶段仍独立检查实际DOM节点。
+复核补充：Mammoth会按每次引用重复生成脚注/尾注，图片点击关系也会重复扩展同一URL。必须在调用转换器前有界检查实际引用放大量，并移除最终不提供导航的图片链接元数据，避免小容器生成数百MiB内容后才拒绝。沿用既定HTML/节点限额，不扩大策略导出；HTML字节检查采用有界、不分配完整编码副本的计数。回归包括普通重复脚注、尾注、精确50,000输出节点正例、超限负例，以及限堆子进程中的原始内存攻击复现；包验证事件仍先于后续转换限额错误。
+
+转换工作量另按既定输出节点预算派生内部上限，覆盖重复但最终可能被合并/丢弃的源结构，避免仅统计可见文本遗漏中间树分配。源节点工作量上限取输出节点预算的四倍，为基本段落、run、文本元素及文本节点留出空间；复杂重复脚注可能提前提示超出预览复杂度，已验证原文件仍可下载。共享样式名称引起的警告字符串放大也须在Mammoth之前消除：固定语义映射不使用超过64字符的名称，转换副本可以把这些名称替换为短的非映射名称并发出固定提示，保留样式ID、定义和原始下载字节，不影响正常标题与样式转换。
+
 - [ ] Step 4：Worker 的消息协议为 `{id,bytes,mime}`；完成包验证先发 `{id,type:'verified'}`，再发 `{id,type:'result',...result}`；失败发 `{id,type:'error',message}`。入口不提供 URL、文件系统或网络权限。转换被杀死不影响原字节；纯模块可在 Node 单测，浏览器 Worker 真实运行留到集成验收。
 - [ ] Step 5：真实内容、脚注、表格跨度、PNG/JPEG、图片标记与输入保留测试；恶意链接/embedded-style-map、错误包、外部图片、不支持复杂内容警告测试；固定构建检查与两阶段审查后提交。
 
@@ -206,21 +216,37 @@ assert.deepEqual([...original],[0x50,0x4b,3,4]);
 - [ ] Step 2：只接受当前 ID；`verified` 只能出现一次，`result` 必须在 verified 之后且 HTML/图片/警告结构和大小有界。成功、error、messageerror、构造/CSP 失败、超时、abort 都移除 handler/timer/listener，terminate 并 dispose；旧结果不能恢复 promise 或触发 verified。真实 DOMException AbortError 表示取消，不显示为解码失败。取消若在开始前发生，不创建 Worker。
 - [ ] Step 3：`sanitizeDocxOutput(window,result,{signal,formats})` 异步返回 `{srcdoc,warnings}`；DOMPurify 每次独立实例，固定标签只保留 p/h1-h6/em/strong/u/s/sub/sup/br/hr/ol/ul/li/table/thead/tbody/tfoot/tr/td/th/img/a及必要脚注结构。清除 untrusted `src/href/srcset/style/events/forms/script/svg/math/object/iframe/meta/base`。只捕获格式为 `docx-image-N` 的图片标记后恢复验证图片，不允许任何原始 URL。
 - [ ] Step 4：在解码前核对图片签名/MIME、每图字节/维度、数量、总头部像素 <=4,000万；原生 Image 实际解码再次核对维度（容许 EXIF 交换），累计实际像素。逐图 URL 必须 finally 撤销；信号与有界超时可中止解码；不支持图片使用占位及明确提示。data URL 仅项目从验证后的 PNG/JPEG/WebP 字节生成。
+
+实施前图片探针：原创204字节、两帧4×4的APNG被现有PNG头检查和Chromium实际解码接受，但返回尺寸只代表画布，不能证明多帧总解码预算。DOCX清理器须在原生解码前有界扫描PNG块并识别`acTL`/`fcTL`/`fdAT`，动画PNG按暂不支持图片显示占位与提示，不能按单帧预算接受。静态PNG/JPEG/WebP保持支持；这不修改旧图片预览行为或扩展格式范围。
+
+图片总量按实际显示引用计数，不能让同一个内部标记重复出现绕过图片数或总像素限制；图片payload的ID必须唯一，字节总量独立检查。无引用的payload不得触发不必要的原生解码。所有原始src/srcset先移除，只有清理后的内部图片标记可恢复由验证字节生成的data URL。
 - [ ] Step 5：节点 <=50,000，内容 HTML <=4MiB；ID 改为内部命名空间，不继承名称；colspan/rowspan 只受限正整数。第一版移除所有 href（含片段），保留脚注编号/内容并提示不提供跳转，避免 srcdoc 学校基址请求。外部网址仅可读文字。固定 srcdoc 包装含 CSP `default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'`、UTF-8 与项目静态 CSS；内容没有活动样式或链接。
+
+表格布局边界细化：显式跨度只接受十进制正整数1–1000；非法值移除并提示，不保留浏览器`rowspan=0`的延伸语义。超过1000的正整数，以及所有单元格`rowspan×colspan`的累计面积超过50,000时拒绝预览（仍保留已验证原文件下载），不静默截断巨大合并区域。累计边界复用输出节点预算，避免少量DOM元素生成巨量空白表格布局；不增加策略导出或改变普通合并表格支持。
+
+字符往返验收：转换HTML中的`&#13;`经浏览器清理与序列化后，进入srcdoc再次解析时仍须保留语义CR；不得仅验证第一轮HTML解析。复用真实DOCX变体，连同DrawingML及HYPERLINK字段产生的href一起进入完整清理链测试。
 - [ ] Step 6：Node 生命周期测试覆盖超时/取消/旧消息/异常/资源清理/原字节不变，真实 Chromium/Firefox 页面验证 sanitizer 恶意内容/URL/DOM污染/总像素/解码失败/最终 CSP。最终两版 iframe 必须另设 `sandbox=""`，不授予任何 token。两阶段审查后提交。
 
 ## 🔧 Task 6：先接入油猴单文件安装包
+
+2026-10-24 实施进度：Task 5 两个源码模块已完成，提交 `cfcb7c8`，静态规格及质量核对通过。未执行测试；上方含运行验收的历史复合步骤不据此勾选通过。Task 6 现进入界面及打包接入。
+
+Task 6 交付记录：源码及生成单文件已提交 `ae0a39d`；静态规格与质量核对通过，Node.js 24.19.0 构建退出码 0。生成 1.3.0 脚本 5,784,659 字节。没有运行测试或安装验收；Task 7 接入继续进行。
 
 **Files:** Modify `userscript/preview.template.js`, `scripts/build-userscript.mjs`, `shared/formats.js` 与现有相关测试；create `scripts/bundle-docx.mjs`, `tests/docx-bundle.test.cjs`, `scripts/smoke-docx.mjs`。运行时依赖全部本地固定打包；许可内嵌。生成文件通过 generator 更新，不手工编辑。
 
 - [ ] Step 1：缺失 DOCX API/打包标记 RED。`bundleDocx()` 用 esbuild 生成本地 browser IIFE 核心与 Worker 源字符串；Worker 不带 URL/网络/文件系统调用，主线程不包含无界转换 fallback。打包许可包括 Mammoth、DOMPurify、fflate、xmldom 与实际传递依赖，许可内容不伪装成 README。
 
 pako 3.0.2 的发行 LICENSE 只列 MIT，Zlib 部分完整版权/限制在随包 `dist/pako.mjs.map` 的 `sourcesContent` 中（`../src/zlib/inflate.mjs` 开头注释）。构建必须从固定发行提取该完整 notice 与 MIT 一同内嵌/随扩展分发，不能只保留已被发行压缩器去掉注释的 `.mjs` 或包 metadata 许可证标签。其他库同样核对实际所含源许可证。
+
+主代理实际Worker构建图包含JSZip的`dist/jszip.min.js`而非逐项lib依赖；该预打包文件另内含pako1.x、lie、immediate及setimmediate，不能仅凭esbuild顶层包列表漏掉这些notice。核对锁定发行的对应许可与源码，并包含pako1.x的完整MIT及Zlib声明（`node_modules/jszip/node_modules/pako/lib/zlib/inflate.js`开头），同时保留xmldom0.9.12和Mammoth内嵌0.8.15的声明。不引入新依赖或替换浏览器解析器来简化许可清单。
 - [ ] Step 2：在模板 `EMBED_DOCX_BUNDLE` 标记注入闭包内 API。DOCX 独立 iframe `fdpdf-docx` 加 `sandbox=""`，可信工具区显示内容局限/取消，没有 PDF 下拉或图片/文本工具。close/newfile/pagehide 清 srcdoc、隐藏并 abort 任务；旧 generation 不改显示。
 - [ ] Step 3：适配器可用后才在 `shared/formats.js` 注册 exact docx/20MiB，传输验证明确仅为初筛。`loadPdf` 的 DOCX 分支位于图片分支之前，先 `runDocxTask`，verified 回调只对当前任务 `setDownload` 原字节；sanitize 后才设 srcdoc。转换/清理失败保留已验证下载，传输/包失败无下载，提供原学校文件入口及重试；取消不自动重开。
 - [ ] Step 4：真实 DOCX 的 Chromium/Firefox 集成渲染、表格跨度、两类图片自然尺寸、中文/脚注可见与文字选择、原字节下载；攻击包无执行、无外网、sandbox无token、CSP存在；关闭/重开/换文件/超时/CSP拒绝/失败下载策略。既有 userscript/PDF reader 回归；记录注入不等于真实管理器安装。两阶段审查后提交。
 
 ## 🔧 Task 7：扩展本地 DOCX 页面与构建同步
+
+2026-10-24 交付补充：沿用已有 PDF/图片/文本内置示例模式，将现有 MIT 原创 `tests/fixtures/docx/normal.docx` 原样随扩展分发为固定 `demo.docx`，帮助页增加示例入口，供用户及商店审核员无需学校账号体验。只允许固定 demo 参数，不接受任意本地文件或 URL；本轮不运行该演示，不重新生成样例，不把提供演示等同于验证通过。
 
 **Files:** Create `extension/docx-viewer.html`, `extension/docx-viewer.mjs`, `extension/docx-viewer.css`；modify `extension/catalog.js`, `extension/reader.mjs`, `scripts/build.mjs` 与验证脚本/测试。禁止扩大 host/GM 权限，不提审上架。
 
@@ -230,11 +256,13 @@ pako 3.0.2 的发行 LICENSE 只列 MIT，Zlib 部分完整版权/限制在随�
 
 ## 🔧 Task 8：交付复核与准确记录
 
+2026-10-24 交付记录：扩展源码提交 `d25d1c3`，静态规格与质量核对通过；已用 Node.js 24.19.0 构建 Chromium、Firefox 1.3.0 ZIP（退出码 0）。保留用户“不运行测试”约定，历史自动及浏览器验收项不勾选为已通过。Edge 包上传后显示 Complete，中英文说明与 DOCX 搜索词已保存；最终 Publish 后页面明确显示 Version 1.3.0 / In review，线上 1.1.1 仍为 Live。未推送或合并 GitHub，未发布 Release。详情与包校验值见 `docs/releases/v1.3.0-candidate.md`。
+
 **Files:** README、隐私/验证/路线图/版本记录、工作流及需要修复的新增模块。
 
 - [ ] 完整单测/检查/build/可复现包；两版真实浏览器与管理器核验；所有重要审查发现修复重审。记录工具环境、原始样例、离线请求证据及原字节对比；说明已验证与未验证范围。
 - [ ] 更新候选版本为 1.3.0（DOCX功能，不表示已上架），注明20MiB与连续阅读限制，依赖许可、最终大小/哈希；油猴和扩展来自一致源码。
-- [ ] 使用最终独立规格与代码复核；完成开发分支技能决定交付。用户没有要求本轮发布或上架，不创建Release/提审。此前推送授权不用于擅自合并未验收代码。
+- [ ] 完成代码核对及候选安装包；按用户后续上架授权提交商店审核，准确区分本地构建、已提交和审核通过。没有新的GitHub合并或Release发布请求，不自动合并主分支或发布Release。
 
 ## ✅ 全程不变量
 
@@ -242,4 +270,4 @@ pako 3.0.2 的发行 LICENSE 只列 MIT，Zlib 部分完整版权/限制在随�
 - [ ] 不只提取文字作为成功交付；正文、表格、图片与脚注必须真实显示。
 - [ ] 默认无文档外部请求、无脚本、无页面同源权限；失败不修改 CSP。
 - [ ] 原始字节独立保留；下载条件区分传输、包验证和转换状态。
-- [ ] 两版接入均验收后才称本轮完整；没有商店提交或自动发布行为。
+- [ ] 两版接入完成状态、未运行的测试及商店提交状态分别说明，不把构建成功等同于运行验证或审核通过。
