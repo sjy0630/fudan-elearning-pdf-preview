@@ -4,6 +4,7 @@ globalThis.CanvasFileFormats = (() => {
   const MiB = 1024 * 1024;
   const definitions = [
     ['pdf', 'application/pdf', ['pdf'], 100 * MiB],
+    ['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ['docx'], 20 * MiB],
     ['png', 'image/png', ['png'], 20 * MiB],
     ['jpeg', 'image/jpeg', ['jpg', 'jpeg'], 20 * MiB],
     ['webp', 'image/webp', ['webp'], 20 * MiB],
@@ -113,6 +114,13 @@ globalThis.CanvasFileFormats = (() => {
     if (formatId === 'text') return { mime: format.mime };
     if (formatId === 'pdf') {
       if (!tag(b, 0, '%PDF-')) malformed();
+      return { mime: format.mime };
+    }
+    if (formatId === 'docx') {
+      // Transfer-only MIME/signature screening. A ZIP header does not verify a
+      // DOCX package; only the adapter's Worker verification enables download.
+      if ([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1].every((value, i) => b[i] === value)) throw new Error('加密 Office 或旧版 Word 文件暂不支持预览。');
+      if (!tag(b, 0, 'PK\x03\x04')) throw new Error('不是支持的 DOCX 容器，或文件已损坏。');
       return { mime: format.mime };
     }
     const [width, height] = ({ png: pngSize, jpeg: jpegSize, webp: webpSize })[formatId](b);

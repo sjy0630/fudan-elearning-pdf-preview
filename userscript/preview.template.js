@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         复旦 eLearning PDF 弹窗预览
 // @namespace    https://elearning.fudan.edu.cn/
-// @version      1.2.0
-// @description  在 eLearning 页面中预览 PDF、图片和文本，无需自动保存文件
+// @version      1.3.0
+// @description  在 eLearning 页面中本地预览 PDF、DOCX、图片和文本，无需自动保存文件
 // @license      MIT
 // @homepageURL  https://github.com/sjy0630/fudan-elearning-pdf-preview
 // @supportURL   https://github.com/sjy0630/fudan-elearning-pdf-preview/issues
@@ -24,6 +24,10 @@
   /* EMBED_PDF_PREFERENCE */
   /* EMBED_PDFJS_READER */
   /* EMBED_PDFJS_CSS */
+  /* EMBED_DOCX_BUNDLE */
+
+  let docxBundle;
+  const getDocxBundle = () => docxBundle || (docxBundle = createEmbeddedDocx());
 
   const pdfPreference = createPdfPreference({
     getValue: (...args) => { if (typeof GM_getValue !== 'function') throw new Error('Storage unavailable'); return GM_getValue(...args); },
@@ -138,7 +142,7 @@
     return blob;
   }
 
-  const state = { root: null, requestId: 0, readerId: 0, reader: null, readerController: null, objectUrl: null, controller: null, bytes: null, image: null, rotation: 0, zoom: 1, oldOverflow: '', trigger: null };
+  const state = { root: null, requestId: 0, readerId: 0, reader: null, readerController: null, objectUrl: null, controller: null, networkTimer: null, bytes: null, docxVerified: false, image: null, rotation: 0, zoom: 1, oldOverflow: '', trigger: null };
   function element(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -163,7 +167,9 @@
       .fdpdf-action,.fdpdf-encoding { border:1px solid #cbd5e1; border-radius:6px; padding:6px 10px; background:white; color:#1d4ed8; text-decoration:none; font:inherit; cursor:pointer; }
       .fdpdf-body { position:relative; flex:1; min-height:0; overflow:auto; background:#e5e7eb; }
       .fdpdf-status { position:absolute; top:16px; left:16px; right:16px; z-index:1; padding:18px; background:white; border-radius:8px; white-space:pre-line; }
-      .fdpdf-viewer { width:100%; height:100%; border:0; display:block; }
+      .fdpdf-viewer,.fdpdf-docx { width:100%; height:100%; border:0; display:block; }
+      .fdpdf-docx-note { flex:1; min-width:200px; color:#475569; }
+      .fdpdf-docx-warnings { margin:6px 0 0; padding-left:20px; }
       .fdpdf-text { margin:0; padding:20px; min-height:100%; box-sizing:border-box; background:white; font:14px/1.6 ui-monospace,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
       .fdpdf-image-stage { position:relative; margin:auto; }
       .fdpdf-image { display:block; position:absolute; left:50%; top:50%; max-width:none; max-height:none; }
@@ -194,15 +200,23 @@
     const wrap = button('wrap','自动换行',() => { const enabled = wrap.getAttribute('aria-pressed') !== 'true'; wrap.setAttribute('aria-pressed',String(enabled)); state.text.style.whiteSpace = enabled ? 'pre-wrap' : 'pre'; });
     const feedback = element('span','fdpdf-feedback'); feedback.setAttribute('role','status');
     textTools.append(encoding,wrap,button('copy','复制文本',copyText),feedback);
+    const docxTools = element('div','fdpdf-tools fdpdf-docx-tools');
+    const docxNote = element('div','fdpdf-docx-note','DOCX 内容预览：支持常见文本、表格和内嵌图片；分页、字体、公式、批注及页眉页脚等可能与 Word 不同。');
+    const docxWarnings = element('ul','fdpdf-docx-warnings'); docxWarnings.setAttribute('role','status'); docxWarnings.hidden = true;
+    docxNote.append(docxWarnings);
+    const docxCancel = button('docx-cancel','取消',() => cancelDocx());
+    const docxRetry = button('docx-retry','重试',() => { if (state.file?.format === 'docx') openDialog(state.file); });
+    docxTools.append(docxNote,docxCancel,docxRetry);
     const body = element('div','fdpdf-body');
     const status = element('div','fdpdf-status'); status.setAttribute('role','status');
     const viewer = element('iframe','fdpdf-viewer'); viewer.title = 'PDF 预览';
+    const docx = element('iframe','fdpdf-docx'); docx.title = 'DOCX 内容预览'; docx.setAttribute('sandbox','');
     const pdfjsHost = element('div','fdpdf-pdfjs');
     const text = element('pre','fdpdf-text'); text.tabIndex = 0;
     const stage = element('div','fdpdf-image-stage');
-    body.append(status,viewer,pdfjsHost,text,stage); dialog.append(header,pdfTools,imageTools,textTools,body); root.append(dialog);
+    body.append(status,viewer,docx,pdfjsHost,text,stage); dialog.append(header,pdfTools,imageTools,textTools,docxTools,body); root.append(dialog);
     document.head.append(style); document.body.append(root);
-    Object.assign(state,{root,title,originalLink,downloadLink,closeButton,pdfTools,readerSelect,preferenceWarning,pdfjsHost,imageTools,textTools,encoding,wrap,feedback,body,status,viewer,text,stage});
+    Object.assign(state,{root,title,originalLink,downloadLink,closeButton,pdfTools,readerSelect,preferenceWarning,pdfjsHost,imageTools,textTools,encoding,wrap,feedback,docxTools,docxWarnings,docxCancel,docxRetry,body,status,viewer,docx,text,stage});
     root.addEventListener('click',event => { if (event.target === root) closeDialog(); });
     document.addEventListener('keydown',event => { if (event.key === 'Escape' && !root.hidden) closeDialog(); });
   }
@@ -216,12 +230,16 @@
     state.requestId++;
     cleanupReader();
     state.controller?.abort(); state.controller = null;
+    clearTimeout(state.networkTimer); state.networkTimer = null;
     if (!state.root) return;
     state.viewer.onload = state.viewer.onerror = null; state.viewer.removeAttribute('src'); state.viewer.hidden = true;
+    state.docx.onload = state.docx.onerror = null; state.docx.removeAttribute('srcdoc'); state.docx.hidden = true;
+    state.docxWarnings.replaceChildren(); state.docxWarnings.hidden = true;
+    state.docxCancel.hidden = state.docxRetry.hidden = true; state.docxVerified = false;
     if (state.image) { state.image.onload = state.image.onerror = null; state.image.removeAttribute('src'); state.image.remove(); }
     state.image = null; state.bytes = null; state.file = null;
     state.text.textContent = ''; state.text.hidden = true; state.stage.hidden = true;
-    state.pdfTools.hidden = state.imageTools.hidden = state.textTools.hidden = true;
+    state.pdfTools.hidden = state.imageTools.hidden = state.textTools.hidden = state.docxTools.hidden = true;
     state.preferenceWarning.textContent = '';
     state.encoding.value = 'auto'; state.wrap.setAttribute('aria-pressed','true'); state.text.style.whiteSpace = 'pre-wrap';
     state.feedback.textContent = ''; state.rotation = 0; state.zoom = 1;
@@ -294,6 +312,14 @@
   function showError(message) {
     state.status.hidden = false; state.status.textContent = `${message}\n可以打开原文件继续查看或下载。`;
     state.originalLink.hidden = false;
+    if (state.file?.format === 'docx') { state.docxCancel.hidden = true; state.docxRetry.hidden = false; }
+  }
+  function cancelDocx(message = '已取消 DOCX 预览。') {
+    const file = state.file;
+    if (file?.format !== 'docx') return;
+    clearPending();
+    state.file = file; state.docxTools.hidden = false;
+    showError(message);
   }
   function setDownload(blob) {
     dropObjectUrl(); state.objectUrl = URL.createObjectURL(blob);
@@ -340,11 +366,17 @@
   async function loadPdf(file) {
     const id = state.requestId, controller = new AbortController(); state.controller = controller;
     const current = () => id === state.requestId && !state.root.hidden && !controller.signal.aborted;
-    const timeout = setTimeout(() => { if (current()) { clearPending(); showError('文件读取超时。'); } },60000);
+    const timeout = setTimeout(() => {
+      if (!current()) return;
+      if (file.format === 'docx') cancelDocx('文件读取超时。');
+      else { clearPending(); showError('文件读取超时。'); }
+    },60000);
+    state.networkTimer = timeout;
     try {
       const blob = await retrievePdf(file,controller.signal);
       const bytes = new Uint8Array(await blob.arrayBuffer());
       if (!current()) return;
+      if (file.format === 'docx') { clearTimeout(timeout); state.networkTimer = null; }
       const validated = CanvasFileFormats.validate(bytes,file.format,file.format === 'pdf' ? '' : blob.type);
       if (file.format === 'text') {
         state.bytes = bytes; state.textTools.hidden = false; renderText();
@@ -353,6 +385,27 @@
         state.bytes = bytes;
         setDownload(new Blob([bytes],{type:validated.mime}));
         mountReader();
+      } else if (file.format === 'docx') {
+        state.bytes = bytes;
+        state.status.textContent = '正在本地检查并转换 DOCX…';
+        const bundle = getDocxBundle();
+        const result = await bundle.runDocxTask(bytes,blob.type,{
+          signal: controller.signal,
+          makeWorker: bundle.makeWorker,
+          onVerified() {
+            if (!current()) return;
+            state.docxVerified = true;
+            setDownload(new Blob([bytes],{type:validated.mime}));
+          },
+        });
+        if (!current()) return;
+        state.status.textContent = '正在准备 DOCX 内容预览…';
+        const output = await bundle.sanitizeDocxOutput(window,result,{signal:controller.signal,formats:CanvasFileFormats});
+        if (!current()) return;
+        state.docxWarnings.replaceChildren(...output.warnings.map(warning => element('li','',warning)));
+        state.docxWarnings.hidden = output.warnings.length === 0;
+        state.docx.srcdoc = output.srcdoc; state.docx.hidden = false;
+        state.docxCancel.hidden = true; state.status.hidden = true;
       } else {
         const image = new Image(); image.className = 'fdpdf-image'; image.alt = file.name; state.image = image;
         // Validate dimensions before decode, then check actual browser dimensions too (including EXIF orientation).
@@ -375,8 +428,16 @@
     } catch (error) {
       if (!current()) return;
       if (state.image) { state.image.removeAttribute('src'); state.image.remove(); state.image = null; }
-      state.bytes = null; dropObjectUrl(); showError(error.message || '无法读取文件。');
-    } finally { clearTimeout(timeout); if (state.controller === controller) state.controller = null; }
+      if (file.format === 'docx') { state.docx.removeAttribute('srcdoc'); state.docx.hidden = true; }
+      // Package verification is the only DOCX download gate. Conversion and
+      // sanitization failures must preserve the verified original bytes.
+      if (file.format !== 'docx' || !state.docxVerified) { state.bytes = null; dropObjectUrl(); }
+      showError(error.message || '无法读取文件。');
+    } finally {
+      clearTimeout(timeout);
+      if (state.networkTimer === timeout) state.networkTimer = null;
+      if (state.controller === controller) state.controller = null;
+    }
   }
   function openDialog(file) {
     ensureDialog();
@@ -386,6 +447,8 @@
     state.status.textContent = '正在读取文件…'; state.status.hidden = false;
     state.root.hidden = false; document.body.style.overflow = 'hidden'; state.closeButton.focus();
     state.pdfTools.hidden = file.format !== 'pdf';
+    state.docxTools.hidden = file.format !== 'docx';
+    state.docxCancel.hidden = file.format !== 'docx';
     if (file.format === 'pdf') loadReaderPreference();
     void loadPdf(file);
   }
