@@ -4,8 +4,8 @@ globalThis.CanvasPreviewCatalog = Object.freeze({
     { id: 'fudan', name: '复旦 eLearning', origin: 'https://elearning.fudan.edu.cn', adapter: 'canvas' },
   ]),
   formats: Object.freeze([
-    ...['pdf', 'png', 'jpeg', 'webp', 'text'].map(id => Object.freeze({
-      ...CanvasFileFormats.get(id), viewer: id === 'pdf' ? 'viewer.html' : 'file-viewer.html',
+    ...['pdf', 'docx', 'png', 'jpeg', 'webp', 'text'].map(id => Object.freeze({
+      ...CanvasFileFormats.get(id), viewer: id === 'pdf' ? 'viewer.html' : id === 'docx' ? 'docx-viewer.html' : 'file-viewer.html',
     })),
   ]),
   readers: Object.freeze([

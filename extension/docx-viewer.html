@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DOCX 预览</title>
+  <link rel="stylesheet" href="viewer.css">
+  <link rel="stylesheet" href="docx-viewer.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand"><span class="badge">DOCX</span><h1 id="title">DOCX 预览</h1></div>
+    <div class="actions">
+      <button id="cancel" hidden>取消预览</button>
+      <a id="original" class="button" hidden target="_blank" rel="noopener noreferrer">打开原文件</a>
+      <a id="download" class="button primary" hidden>下载原文件</a>
+      <a class="help" href="help.html" aria-label="使用帮助">?</a>
+    </div>
+  </header>
+  <div id="demo-note" hidden>这是随扩展安装的原创 DOCX 演示文件，不包含真实课程资料，无需联网。</div>
+  <section id="preview-note" aria-label="预览说明">
+    <p>DOCX 内容预览以连续阅读方式显示，文件只在你的浏览器中处理，大小上限为 20 MiB。分页、复杂版式、公式、批注和修订可能无法完整还原，请以原文件为准。</p>
+  </section>
+  <section id="warnings" aria-label="文档预览提示" hidden><ul id="warning-list"></ul></section>
+  <main id="workspace">
+    <section id="status" class="status" role="status" aria-live="polite">
+      <h2 id="status-title">正在读取…</h2>
+      <p id="status-detail"></p>
+      <div class="status-actions"><button id="retry" hidden>重试</button><button id="grant" hidden>允许读取此服务器</button></div>
+    </section>
+    <iframe id="docx" title="DOCX 文档内容" sandbox="" hidden></iframe>
+  </main>
+  <script src="formats.js"></script>
+  <script src="catalog.js"></script>
+  <script src="core.js"></script>
+  <script type="module" src="docx-viewer.mjs"></script>
+</body>
+</html>

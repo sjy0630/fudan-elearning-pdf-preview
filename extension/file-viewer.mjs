@@ -7,12 +7,12 @@ const demo = Object.hasOwn(demos, query.get('demo')) ? demos[query.get('demo')] 
 const source = query.get('source'), original = query.get('original') || source;
 const format = demo?.format || query.get('format');
 const descriptor = CanvasFileFormats.get(format);
-const valid = !!descriptor && format !== 'pdf' && (!!demo || (!query.has('demo') && FdPdf.fileUrl(source) && FdPdf.fileUrl(original) && CanvasFileFormats.identify(query.get('name'))?.id === format));
+const valid = !!descriptor && format !== 'pdf' && format !== 'docx' && (!!demo || (!query.has('demo') && FdPdf.fileUrl(source) && FdPdf.fileUrl(original) && CanvasFileFormats.identify(query.get('name'))?.id === format));
 const name = valid ? FdPdf.fileName(demo?.name || query.get('name'), format) : '文件预览';
 $('title').textContent = name; document.title = `${name} · eLearning 文件预览`;
 if (!demo && FdPdf.fileUrl(original)) { $('original').href = original; $('original').hidden = false; }
 $('demo-note').hidden = !demo;
-$('text-controls').hidden = format !== 'text'; $('image-controls').hidden = !descriptor || format === 'text' || format === 'pdf';
+$('text-controls').hidden = format !== 'text'; $('image-controls').hidden = !['png', 'jpeg', 'webp'].includes(format);
 let generation = 0, controller, objectUrl, bytes, image, dimensions, pendingScope, scale = 1, rotation = 0, fitting = true, textReady = false;
 function status(title, detail, retry = false) {
   $('status').hidden = false; $('status-title').textContent = title; $('status-detail').textContent = detail; $('retry').hidden = !retry;
