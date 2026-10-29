@@ -261,3 +261,18 @@ test('XML identified by content type or relationship is checked before parsing r
   }
   assert.throws(() => verifyPresentationPackage(forged, 'pptx'), /声明 XML 大小超过限制（8 MiB）/);
 });
+test('external relationship targets cannot alias local ZIP parts consumed by the engine', async () => {
+  const fs = require('node:fs'), { unzipSync, zipSync } = await import('fflate');
+  const { verifyPresentationPackage } = await load('package');
+  const files = unzipSync(fs.readFileSync(path.join(__dirname, 'fixtures/presentation/normal.pptx')));
+  const theme = new TextDecoder().decode(files['ppt/theme/theme1.xml']);
+  delete files['ppt/theme/theme1.xml'];
+  files['ppt/theme/theme1.bin'] = enc('<!DOCTYPE theme>' + theme.replace(/^<\?xml[^>]*>\s*/, ''));
+  for (const name of Object.keys(files).filter(name => name.endsWith('.rels') || name === '[Content_Types].xml')) {
+    let xml = new TextDecoder().decode(files[name]);
+    if (name === '[Content_Types].xml') xml = xml.replaceAll('theme1.xml', 'theme1.bin').replaceAll('application/vnd.openxmlformats-officedocument.theme+xml', 'application/octet-stream');
+    else xml = xml.replace(/Target="[^"]*theme1\.xml"/g, 'Target="ppt/theme/theme1.bin" TargetMode="External"');
+    files[name] = enc(xml);
+  }
+  assert.throws(() => verifyPresentationPackage(zipSync(files, { level: 6 }), 'pptx'), /外部关系.*包内部件/);
+});

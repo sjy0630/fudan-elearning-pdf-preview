@@ -112,7 +112,12 @@ function verifyPptx(bytes) {
     for (const item of children(root)) {
       const id = item.getAttribute('Id'), type = item.getAttribute('Type'), target = item.getAttribute('Target'), mode = item.getAttribute('TargetMode') || '';
       if (!is(item, REL, 'Relationship') || !id || rels.has(id) || !type || !target || !['', 'Internal', 'External'].includes(mode) || macro(type)) fail('关系属性无效或宏关系不支持');
-      if (mode === 'External') { warnings.add(W.external); rels.set(id, { type, external: true }); continue; }
+      if (mode === 'External') {
+        // The engine stores an external target literally and may look it up
+        // in its local ZIP map. Reject that alias before skipping XML roles.
+        if (names.has(target)) fail('外部关系不能引用同名包内部件');
+        warnings.add(W.external); rels.set(id, { type, external: true }); continue;
+      }
       // Internal slide hyperlinks may carry a fragment, but never load a URL.
       const resolved = targetPath(target.split('#')[0], base);
       if (!names.has(resolved)) fail('关系目标部件缺失');
