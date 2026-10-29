@@ -26,7 +26,7 @@ function pathKey(name) {
   }
 }
 
-function inspect(bytes) {
+function inspect(bytes, limits) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const range = (offset, length, end = bytes.length) => {
     if (offset < 0 || length < 0 || offset + length > end) fail('结构截断或范围无效');
@@ -44,7 +44,7 @@ function inspect(bytes) {
   const count = u16(end + 10);
   if (u16(end + 4) || u16(end + 6) || u16(end + 8) !== count) fail('分卷或目录数量不符');
   if (count === 0xffff || u32(end + 12) === 0xffffffff || u32(end + 16) === 0xffffffff) fail('ZIP64 不支持');
-  if (count > DOCX_LIMITS.entries) fail('条目数超过限制（1000）');
+  if (count > limits.entries) fail(`条目数超过限制（${limits.entries}）`);
   const central = u32(end + 16);
   const centralEnd = central + u32(end + 12);
   range(central, centralEnd - central, end);
@@ -96,10 +96,10 @@ function inspect(bytes) {
     const compressedSize = u32(p + 20);
     const localOffset = u32(p + 42);
     if ([compressedSize, uncompressedSize, localOffset].includes(0xffffffff)) fail('ZIP64 不支持');
-    if (uncompressedSize > DOCX_LIMITS.entryBytes) fail('声明条目大小超过限制（20 MiB）');
-    if (xmlPart(name) && uncompressedSize > DOCX_LIMITS.xmlBytes) fail('声明 XML 大小超过限制（4 MiB）');
+    if (uncompressedSize > limits.entryBytes) fail(`声明条目大小超过限制（${limits.entryBytes / 1024 / 1024} MiB）`);
+    if (xmlPart(name) && uncompressedSize > limits.xmlBytes) fail(`声明 XML 大小超过限制（${limits.xmlBytes / 1024 / 1024} MiB）`);
     declaredTotal += uncompressedSize;
-    if (declaredTotal > DOCX_LIMITS.expandedBytes) fail('声明展开大小超过限制（60 MiB）');
+    if (declaredTotal > limits.expandedBytes) fail(`声明展开大小超过限制（${limits.expandedBytes / 1024 / 1024} MiB）`);
     extra(p + 46 + nameLength, u16(p + 30), rawName, name);
     range(localOffset, 30, central);
     if (u32(localOffset) !== 0x04034b50) fail('本地文件签名无效');
@@ -157,12 +157,20 @@ function inspect(bytes) {
 
 // A valid ZIP is only a container; OOXML package validation is a separate gate.
 export function scanDocxZip(input) {
-  return inspect(checkDocxTransfer(input));
+  return scanBoundedZip(checkDocxTransfer(input), DOCX_LIMITS);
 }
 
 export function expandDocxZip(input) {
-  const bytes = checkDocxTransfer(input);
-  const entries = inspect(bytes);
+  return expandBoundedZip(checkDocxTransfer(input), DOCX_LIMITS);
+}
+
+// Callers validate transport and provide their own immutable resource policy.
+export function scanBoundedZip(bytes, limits) {
+  return inspect(bytes, limits);
+}
+
+export function expandBoundedZip(bytes, limits) {
+  const entries = inspect(bytes, limits);
   const expanded = new Map();
   let total = 0;
   for (const entry of entries) {
@@ -174,9 +182,9 @@ export function expandDocxZip(input) {
       size += chunk.length;
       total += chunk.length;
       // Check actual bytes before CRC work or retaining the next output chunk.
-      if (size > DOCX_LIMITS.entryBytes) fail('实际条目大小超过限制（20 MiB）');
-      if (xml && size > DOCX_LIMITS.xmlBytes) fail('实际 XML 大小超过限制（4 MiB）');
-      if (total > DOCX_LIMITS.expandedBytes) fail('实际展开大小超过限制（60 MiB）');
+      if (size > limits.entryBytes) fail(`实际条目大小超过限制（${limits.entryBytes / 1024 / 1024} MiB）`);
+      if (xml && size > limits.xmlBytes) fail(`实际 XML 大小超过限制（${limits.xmlBytes / 1024 / 1024} MiB）`);
+      if (total > limits.expandedBytes) fail(`实际展开大小超过限制（${limits.expandedBytes / 1024 / 1024} MiB）`);
       crc = advanceCrc(crc, chunk);
       if (chunk.length) chunks.push(chunk);
     };
