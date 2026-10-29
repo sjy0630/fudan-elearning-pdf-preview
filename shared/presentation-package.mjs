@@ -1,5 +1,5 @@
 import { DOMParser } from '@xmldom/xmldom';
-import { expandBoundedZip } from './docx-zip.mjs';
+import { expandBoundedZip, scanBoundedZip } from './docx-zip.mjs';
 import { checkPresentationTransfer, PRESENTATION_LIMITS as L, PRESENTATION_WARNINGS as W, validatePresentationDimensions } from './presentation-policy.mjs';
 
 const fail = message => { throw new Error(`幻灯片 ${message}。`); };
@@ -69,12 +69,16 @@ function targetPath(target, base) {
   return parts.join('/');
 }
 function verifyPptx(bytes) {
-  const parts = expandBoundedZip(bytes, L), documents = new Map(), budget = { nodes: 0 }, warnings = new Set([W.static, W.fonts]);
-  for (const [name, data] of parts) {
+  const names = new Set(scanBoundedZip(bytes, L).map(entry => entry.name));
+  const documents = new Map(), budget = { nodes: 0 }, warnings = new Set([W.static, W.fonts]);
+  for (const name of names) {
     if (macro(name) || /(?:^|\/)(?:EncryptionInfo|EncryptedPackage)$/i.test(name)) fail('宏或加密文件不支持');
-    if (/\.(?:xml|rels)$/i.test(name)) documents.set(name, parsePresentationXml(decode(data), budget));
     if (/\.(?:wmf|emf|pict|svg)$/i.test(name)) warnings.add(W.vector);
   }
+  // First expand only the manifest and relationship records. They establish
+  // XML types/roles before any nonstandard-suffix part can allocate output.
+  const manifest = expandBoundedZip(bytes, L, { select: name => name === '[Content_Types].xml' || /\.rels$/i.test(name) });
+  for (const [name, data] of manifest) documents.set(name, parsePresentationXml(decode(data), budget));
   const ct = documents.get('[Content_Types].xml')?.documentElement;
   if (!is(ct, CT, 'Types')) fail('缺少有效的内容类型部件');
   const defaults = new Map(), overrides = new Map();
@@ -89,20 +93,20 @@ function verifyPptx(bytes) {
       const target = item.getAttribute('PartName') || '';
       if (!target.startsWith('/')) fail('内容类型路径无效');
       const name = targetPath(target, '');
-      if (!parts.has(name) || overrides.has(name)) fail('内容类型路径缺失或重复');
+      if (!names.has(name) || overrides.has(name)) fail('内容类型路径缺失或重复');
       overrides.set(name, type);
     } else fail('内容类型条目无效');
   }
   const typeOf = name => overrides.get(name) || defaults.get(name.split('.').pop().toLowerCase());
   const relationships = new Map();
-  for (const [name] of parts) {
+  for (const name of names) {
     if (name.endsWith('/') || name === '[Content_Types].xml') continue;
     if (!typeOf(name)) fail('包部件缺少内容类型');
     if (!name.endsWith('.rels')) continue;
     const root = documents.get(name)?.documentElement;
     if (!is(root, REL, 'Relationships') || typeOf(name) !== 'application/vnd.openxmlformats-package.relationships+xml') fail('关系部件无效');
     const owner = name === '_rels/.rels' ? '' : name.replace(/(^|\/)\_rels\/([^/]+)\.rels$/, '$1$2');
-    if (owner && (!parts.has(owner) || owner === name)) fail('关系源部件缺失');
+    if (owner && (!names.has(owner) || owner === name)) fail('关系源部件缺失');
     const base = owner.includes('/') ? owner.slice(0, owner.lastIndexOf('/')) : '';
     const rels = new Map();
     for (const item of children(root)) {
@@ -111,11 +115,20 @@ function verifyPptx(bytes) {
       if (mode === 'External') { warnings.add(W.external); rels.set(id, { type, external: true }); continue; }
       // Internal slide hyperlinks may carry a fragment, but never load a URL.
       const resolved = targetPath(target.split('#')[0], base);
-      if (!parts.has(resolved)) fail('关系目标部件缺失');
+      if (!names.has(resolved)) fail('关系目标部件缺失');
       rels.set(id, { type, target: resolved, external: false });
     }
     relationships.set(owner, rels);
   }
+  const xmlNames = new Set([...names].filter(name => /\.(?:xml|rels)$/i.test(name) || /(?:\+xml$|^(?:application|text)\/xml$)/i.test(typeOf(name) || '')));
+  const binaryRoles = new Set(['image', 'audio', 'video', 'media', 'oleObject', 'package', 'font', 'fontData', 'printerSettings']);
+  for (const rels of relationships.values()) for (const rel of rels.values()) {
+    if (!rel.external && !binaryRoles.has(rel.type.slice(rel.type.lastIndexOf('/') + 1))) xmlNames.add(rel.target);
+  }
+  // Both declared sizes and actual Inflate output now use the XML budget,
+  // including e.g. a theme stored as .bin with an opaque declared MIME.
+  const parts = expandBoundedZip(bytes, L, { isXmlPart: name => xmlNames.has(name) });
+  for (const [name, data] of parts) if (xmlNames.has(name) && !documents.has(name)) documents.set(name, parsePresentationXml(decode(data), budget));
   const office = [...(relationships.get('')?.values() || [])].filter(r => r.type === `${R}/officeDocument`);
   if (office.length !== 1 || office[0].external || office[0].target !== 'ppt/presentation.xml') fail('缺少唯一的 PowerPoint 主部件关系');
   if (typeOf('ppt/presentation.xml') !== 'application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml') fail('PowerPoint 主部件类型不符');

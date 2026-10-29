@@ -5,14 +5,14 @@ import { presentationAbortError, PRESENTATION_LIMITS } from './presentation-poli
 export async function createPresentationReader({ host, bytes, format, mime = '', signal, makeWorker, onVerified, formats }) {
   if (!host?.ownerDocument) throw new Error('幻灯片预览容器不可用。');
   const document = host.ownerDocument, window = document.defaultView, controller = new AbortController();
-  let session, disposed = false, page = 0, busy = false, generation = 0, zoom = 1, fitting = true, resizeObserver;
+  let session, disposed = false, failed = false, page = 0, busy = false, generation = 0, zoom = 1, fitting = true, resizeObserver;
   const root = document.createElement('section'); root.className = 'presentation-reader';
-  root.style.cssText = 'display:flex;flex-direction:column;min-height:0;height:100%;background:#e8ebef;color:#202124';
+  root.style.cssText = 'display:flex;flex-direction:column;min-height:0;height:100%;background:#e8ebef;color:#202124;font:14px/1.5 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
   const controls = document.createElement('div'); controls.setAttribute('aria-label', '幻灯片控制');
   controls.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px;background:#fff;border-bottom:1px solid #ccd0d5';
-  const button = (text, action) => { const element = document.createElement('button'); element.type = 'button'; element.textContent = text; element.addEventListener('click', action); controls.append(element); return element; };
+  const button = (text, action) => { const element = document.createElement('button'); element.type = 'button'; element.textContent = text; element.style.cssText = 'box-sizing:border-box;min-height:34px;margin:0;padding:6px 12px;border:1px solid #ccd5e4;border-radius:6px;background:#fff;color:#223453;font:inherit;line-height:20px;cursor:pointer'; element.addEventListener('click', action); controls.append(element); return element; };
   const prev = button('上一页', () => show(page - 1)), next = button('下一页', () => show(page + 1));
-  const input = document.createElement('input'); input.type = 'number'; input.min = '1'; input.step = '1'; input.value = '1'; input.style.width = '72px'; input.setAttribute('aria-label', '跳转到幻灯片页码'); controls.append(input);
+  const input = document.createElement('input'); input.type = 'number'; input.min = '1'; input.step = '1'; input.value = '1'; input.style.cssText = 'box-sizing:border-box;width:76px;height:34px;margin:0;padding:5px 8px;border:1px solid #ccd5e4;border-radius:6px;background:#fff;color:#223453;font:inherit;line-height:20px'; input.setAttribute('aria-label', '跳转到幻灯片页码'); controls.append(input);
   const count = document.createElement('span'); count.textContent = '/ — 页'; controls.append(count);
   const jump = button('跳转', () => { const value = Number(input.value); if (Number.isInteger(value) && value >= 1 && value <= session?.slideCount) show(value - 1); else { status.textContent = `请输入 1 至 ${session?.slideCount || 1} 的页码。`; input.value = String(page + 1); } });
   input.addEventListener('keydown', event => { if (event.key === 'Enter') jump.click(); });
@@ -26,10 +26,11 @@ export async function createPresentationReader({ host, bytes, format, mime = '',
   root.append(controls, status, warnings, viewport); host.append(root);
   function check() { if (disposed || controller.signal.aborted) throw presentationAbortError(); }
   function updateControls() {
-    prev.disabled = busy || !session || page <= 0; next.disabled = busy || !session || page >= session.slideCount - 1;
-    jump.disabled = input.disabled = busy || !session;
+    prev.disabled = failed || busy || !session || page <= 0; next.disabled = failed || busy || !session || page >= session.slideCount - 1;
+    jump.disabled = input.disabled = failed || busy || !session;
     less.disabled = more.disabled = fit.disabled = !session;
     input.value = String(page + 1);
+    for (const control of [prev, next, jump, input, less, more, fit]) { control.style.opacity = control.disabled ? '.5' : '1'; control.style.cursor = control.disabled ? 'default' : control === input ? 'text' : 'pointer'; }
   }
   function layout() {
     if (!session || disposed) return;
@@ -39,8 +40,13 @@ export async function createPresentationReader({ host, bytes, format, mime = '',
   }
   function changeZoom(value) { fitting = false; zoom = Math.max(.1, Math.min(4, value)); layout(); }
   async function show(target, initial = false) {
-    if (busy || disposed || !session || target < 0 || target >= session.slideCount) return;
+    if (busy || disposed || failed || !session || target < 0 || target >= session.slideCount) return;
     busy = true; const token = ++generation; updateControls(); status.textContent = `正在显示第 ${target + 1} 页…`;
+    let timedOut = false;
+    const deadline = setTimeout(() => {
+      timedOut = true; failed = true;
+      controller.abort(); session.dispose();
+    }, PRESENTATION_LIMITS.timeoutMs);
     try {
       const output = await session.render(target); check();
       const clean = await sanitizePresentationSlide(output, { width: session.width, height: session.height, window, signal: controller.signal, formats }); check();
@@ -68,9 +74,10 @@ export async function createPresentationReader({ host, bytes, format, mime = '',
       page = target;
       warnings.textContent = clean.warnings.join(' '); status.textContent = `第 ${page + 1} / ${session.slideCount} 页`; layout();
     } catch (error) {
+      if (timedOut) error = new Error('幻灯片页面处理超时（30 秒），请下载原文件查看。');
       if (initial) throw error;
       if (!disposed && token === generation && error?.name !== 'AbortError') status.textContent = `第 ${target + 1} 页显示失败：${error?.message || '请下载原文件查看。'}`;
-    } finally { if (!disposed && token === generation) { busy = false; updateControls(); } }
+    } finally { clearTimeout(deadline); if (!disposed && token === generation) { busy = false; updateControls(); } }
   }
   function dispose() {
     if (disposed) return;

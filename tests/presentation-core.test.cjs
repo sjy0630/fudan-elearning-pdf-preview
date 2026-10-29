@@ -213,3 +213,51 @@ test('sanitizer rejects DTD and oversized canvases; raster pixels are bounded pe
   const output = { page: 0, assets: [{ id: 'presentation-image-1', mime: 'image/png', bytes: large }], warnings: [], svg: '<svg xmlns="http://www.w3.org/2000/svg"><image href="presentation-image-1"/><image href="presentation-image-1"/></svg>' };
   await assert.rejects(sanitizePresentationSlide(output, { width: 960, height: 720 }), /超过预览限制/);
 });
+test('one page deadline covers rendering plus iframe load together', async t => {
+  const { createPresentationReader } = await load('reader');
+  const dom = fakeReaderDom(), fake = fakeWorker(), bytes = await pptx();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const opening = createPresentationReader({ host: dom.host, bytes, format: 'pptx', makeWorker: fake.makeWorker });
+  const rejected = assert.rejects(opening, /超时/);
+  fake.reply({ id: fake.sent[0].id, type: 'ready', format: 'pptx', slideCount: 1, width: 960, height: 720, warnings: [] });
+  await tick();
+  t.mock.timers.tick(20000);
+  fake.reply({ id: fake.sent[1].id, type: 'slide', page: 0, svg: '<svg xmlns="http://www.w3.org/2000/svg"><text>第一页</text></svg>', assets: [], warnings: [] });
+  await tick();
+  assert.ok(dom.find('iframe'));
+  t.mock.timers.tick(10000);
+  await tick();
+  const atDeadline = fake.counts();
+  // Ensure a failing pre-fix implementation still settles and cleans up.
+  t.mock.timers.tick(30000);
+  await rejected;
+  assert.deepEqual(atDeadline, [1, 1], 'Worker must be stopped by the single 30-second page deadline');
+});
+test('XML identified by content type or relationship is checked before parsing regardless of suffix', async () => {
+  const fs = require('node:fs'), { unzipSync, zipSync } = await import('fflate');
+  const { verifyPresentationPackage } = await load('package');
+  const files = unzipSync(fs.readFileSync(path.join(__dirname, 'fixtures/presentation/normal.pptx')));
+  const original = new TextDecoder().decode(files['ppt/theme/theme1.xml']);
+  const rename = (malicious, opaque) => {
+    const modified = { ...files }; delete modified['ppt/theme/theme1.xml'];
+    modified['ppt/theme/theme1.bin'] = enc(malicious ? '<!DOCTYPE theme>' + original.replace(/^<\?xml[^>]*>\s*/, '') : original);
+    for (const name of Object.keys(modified).filter(n => n.endsWith('.rels') || n === '[Content_Types].xml')) {
+      let xml = new TextDecoder().decode(modified[name]).replaceAll('theme1.xml', 'theme1.bin');
+      if (opaque && name === '[Content_Types].xml') xml = xml.replaceAll('application/vnd.openxmlformats-officedocument.theme+xml', 'application/octet-stream');
+      modified[name] = enc(xml);
+    }
+    return zipSync(modified, { level: 6 });
+  };
+  for (const opaque of [false, true]) assert.throws(() => verifyPresentationPackage(rename(true, opaque), 'pptx'), /XML/);
+  assert.equal(verifyPresentationPackage(rename(false, true), 'pptx').slideCount, 3);
+  const forged = rename(false, true), dv = new DataView(forged.buffer), end = forged.length - 22;
+  for (let at = dv.getUint32(end + 16, true); at < end;) {
+    const length = dv.getUint16(at + 28, true), name = new TextDecoder().decode(forged.subarray(at + 46, at + 46 + length));
+    if (name === 'ppt/theme/theme1.bin') {
+      dv.setUint32(at + 24, 8 * 1024 * 1024 + 1, true);
+      dv.setUint32(dv.getUint32(at + 42, true) + 22, 8 * 1024 * 1024 + 1, true);
+    }
+    at += 46 + length + dv.getUint16(at + 30, true) + dv.getUint16(at + 32, true);
+  }
+  assert.throws(() => verifyPresentationPackage(forged, 'pptx'), /声明 XML 大小超过限制（8 MiB）/);
+});

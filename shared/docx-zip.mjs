@@ -26,7 +26,7 @@ function pathKey(name) {
   }
 }
 
-function inspect(bytes, limits) {
+function inspect(bytes, limits, isXmlPart = xmlPart) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const range = (offset, length, end = bytes.length) => {
     if (offset < 0 || length < 0 || offset + length > end) fail('结构截断或范围无效');
@@ -97,7 +97,7 @@ function inspect(bytes, limits) {
     const localOffset = u32(p + 42);
     if ([compressedSize, uncompressedSize, localOffset].includes(0xffffffff)) fail('ZIP64 不支持');
     if (uncompressedSize > limits.entryBytes) fail(`声明条目大小超过限制（${limits.entryBytes / 1024 / 1024} MiB）`);
-    if (xmlPart(name) && uncompressedSize > limits.xmlBytes) fail(`声明 XML 大小超过限制（${limits.xmlBytes / 1024 / 1024} MiB）`);
+    if (isXmlPart(name) && uncompressedSize > limits.xmlBytes) fail(`声明 XML 大小超过限制（${limits.xmlBytes / 1024 / 1024} MiB）`);
     declaredTotal += uncompressedSize;
     if (declaredTotal > limits.expandedBytes) fail(`声明展开大小超过限制（${limits.expandedBytes / 1024 / 1024} MiB）`);
     extra(p + 46 + nameLength, u16(p + 30), rawName, name);
@@ -169,15 +169,16 @@ export function scanBoundedZip(bytes, limits) {
   return inspect(bytes, limits);
 }
 
-export function expandBoundedZip(bytes, limits) {
-  const entries = inspect(bytes, limits);
+export function expandBoundedZip(bytes, limits, { select, isXmlPart = xmlPart } = {}) {
+  const entries = inspect(bytes, limits, isXmlPart);
   const expanded = new Map();
   let total = 0;
   for (const entry of entries) {
+    if (select && !select(entry.name)) continue;
     const chunks = [];
     let size = 0;
     let crc = 0xffffffff;
-    const xml = xmlPart(entry.name);
+    const xml = isXmlPart(entry.name);
     const receive = chunk => {
       size += chunk.length;
       total += chunk.length;
