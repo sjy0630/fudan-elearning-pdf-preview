@@ -1,5 +1,5 @@
 {
   "extensionName": { "message": "复旦 eLearning PDF 预览" },
-  "extensionDescription": { "message": "在复旦 eLearning 本地预览 PDF、DOCX、图片和文本，免 Tampermonkey，不上传课件。" },
+  "extensionDescription": { "message": "在复旦 eLearning 本地预览 PDF、DOCX、PPT、PPTX、图片和文本，免 Tampermonkey，不上传课件。" },
   "actionTitle": { "message": "eLearning PDF 预览" }
 }

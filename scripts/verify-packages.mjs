@@ -42,6 +42,8 @@ for (const browser of ['chromium', 'firefox']) {
   assert.deepEqual(manifest.optional_host_permissions, ['https://*/*']);
   assert.ok(!manifest.content_security_policy.extension_pages.includes("'unsafe-eval'"));
   const resources = ['viewer.html', 'viewer.mjs', 'viewer.css', 'reader.mjs', 'help.html', 'help.css',
+    'docx-viewer.html', 'docx-viewer.mjs', 'docx-viewer.css', 'demo.docx', 'vendor/docx-core.mjs', 'vendor/docx-worker.js', 'vendor/DOCX-LICENSES.txt', 'DOCX-DEMO-LICENSE.txt',
+    'presentation-viewer.html', 'presentation-viewer.mjs', 'presentation-viewer.css', 'demo.ppt', 'demo.pptx', 'vendor/presentation-core.mjs', 'vendor/presentation-worker.js', 'vendor/PRESENTATION-LICENSES.txt', 'PRESENTATION-DEMO-LICENSE.txt',
     'file-viewer.html', 'file-viewer.mjs', 'file-viewer.css', 'demo.png', 'demo.txt',
     'popup.html', 'demo.pdf', 'LICENSE.txt', 'vendor/PDFJS-LICENSE.txt', 'vendor/pdf.mjs',
     'vendor/pdf.worker.mjs', 'vendor/pdf_viewer.css', ...Object.values(manifest.icons),
@@ -54,6 +56,9 @@ for (const browser of ['chromium', 'firefox']) {
   assert.deepEqual(Buffer.from(files['demo.pdf']), createDemoPdf());
   assert.deepEqual(Buffer.from(files['demo.png']), createDemoImage());
   assert.deepEqual(Buffer.from(files['demo.txt']), createDemoText());
+  for (const format of ['ppt','pptx']) assert.deepEqual(Buffer.from(files[`demo.${format}`]), await readFile(new URL(`tests/fixtures/presentation/normal.${format}`,root)));
+  assert.deepEqual(Buffer.from(files['demo.docx']),await readFile(new URL('tests/fixtures/docx/normal.docx',root)));
+  for (const resource of ['presentation-viewer.html','presentation-viewer.mjs','presentation-viewer.css','docx-viewer.html','docx-viewer.mjs','docx-viewer.css']) assert.deepEqual(Buffer.from(files[resource]),await readFile(new URL(`extension/${resource}`,root)));
   for (const resource of ['file-viewer.html','file-viewer.mjs','file-viewer.css','reader.mjs','help.html','core.js','catalog.js','content.js','background.js']) assert.deepEqual(Buffer.from(files[resource]), await readFile(new URL(`extension/${resource}`, root)), `${resource}: source bytes differ`);
   assert.deepEqual(Buffer.from(files['formats.js']), await readFile(new URL('shared/formats.js', root)));
   for (const name of Object.keys(files)) {

@@ -1,0 +1,6 @@
+These original presentation demo fixtures are licensed under the repository's
+MIT license. Copyright (c) 2026 Fudan eLearning Preview contributors.
+
+normal.pptx was authored using scripts/create-presentation-fixture.mjs.
+normal.ppt is the same original content saved by Microsoft PowerPoint in the
+PowerPoint 97–2003 binary format. No real course material is included.

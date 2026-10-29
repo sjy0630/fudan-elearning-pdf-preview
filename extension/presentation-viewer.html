@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>幻灯片预览</title>
+  <link rel="stylesheet" href="viewer.css">
+  <link rel="stylesheet" href="presentation-viewer.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand"><span class="badge">PPT</span><h1 id="title">幻灯片预览</h1></div>
+    <div class="actions">
+      <button id="cancel" hidden>取消预览</button>
+      <a id="original" class="button" hidden target="_blank" rel="noopener noreferrer">打开原文件</a>
+      <a id="download" class="button primary" hidden>下载原文件</a>
+      <a class="help" href="help.html" aria-label="使用帮助">?</a>
+    </div>
+  </header>
+  <div id="demo-note" hidden>这是随扩展安装的原创演示文件，不包含真实课程资料，无需联网。</div>
+  <p id="preview-note">PPT / PPTX 静态预览：文件在本地处理，上限 50 MiB、500 页。字体、复杂图形和旧版矢量图片可能无法完整还原，不播放动画或音视频，请以原文件为准。</p>
+  <main id="workspace">
+    <section id="status" class="status" role="status" aria-live="polite">
+      <h2 id="status-title">正在读取…</h2><p id="status-detail"></p>
+      <div class="status-actions"><button id="retry" hidden>重试</button><button id="grant" hidden>允许读取此服务器</button></div>
+    </section>
+    <div id="presentation" hidden></div>
+  </main>
+  <script src="formats.js"></script><script src="catalog.js"></script><script src="core.js"></script>
+  <script type="module" src="presentation-viewer.mjs"></script>
+</body>
+</html>

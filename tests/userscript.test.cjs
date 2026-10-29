@@ -67,7 +67,7 @@ test('recognizes the assignment PDF and derives its download endpoint', () => {
 
 test('same final-suffix whitelist, exact Canvas routes and verifier preservation', () => {
   const { pdfLinkFromClick: identify } = loadScript();
-  for (const suffix of ['png','jpg','jpeg','webp','txt','csv','log','json','xml','yaml','yml','c','h','cpp','hpp','py','js','ts','java','css','sql','sh','pdf']) {
+  for (const suffix of ['png','jpg','jpeg','webp','txt','csv','log','json','xml','yaml','yml','c','h','cpp','hpp','py','js','ts','java','css','sql','sh','pdf','docx','ppt','pptx']) {
     const file = identify(clickFor('https://elearning.fudan.edu.cn/files/12/preview?verifier=a%2Bb', 'example.' + suffix));
     assert.ok(file, suffix);
     assert.equal(file.downloadUrl.searchParams.get('verifier'), 'a+b');
@@ -133,11 +133,11 @@ test('GM preserves MIME, rejects final size and ignores late callbacks after abo
   await assert.rejects(large,/超过/); assert.equal(aborted,2);
 });
 
-test('leaves download controls, non-PDF files and modified clicks alone', () => {
+test('leaves download controls, unsupported files and modified clicks alone', () => {
   const { pdfLinkFromClick } = loadScript();
   const href = 'https://elearning.fudan.edu.cn/courses/12345/files/67890?wrap=1';
   assert.equal(pdfLinkFromClick(clickFor(href, '示例讲义.pdf', { downloadControl: true })), null);
-  assert.equal(pdfLinkFromClick(clickFor(href, '作业说明.docx')), null);
+  assert.equal(pdfLinkFromClick(clickFor(href, '作业说明.doc')), null);
   assert.equal(pdfLinkFromClick(clickFor(href, '示例讲义.pdf', { event: { ctrlKey: true } })), null);
   assert.equal(pdfLinkFromClick(clickFor('https://example.com/file.pdf', 'file.pdf')), null);
 });

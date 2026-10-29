@@ -8,6 +8,7 @@ import { createDemoPdf } from './demo-pdf.mjs';
 import { createDemoImage, createDemoText } from './demo-files.mjs';
 import { archiveDirectory } from './archive.mjs';
 import { bundleDocx } from './bundle-docx.mjs';
+import { bundlePresentation } from './bundle-presentation.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(await readFile(path.join(root, 'package.json')));
@@ -47,6 +48,7 @@ function icon(size) {
 }
 
 const docx = await bundleDocx();
+const presentation = await bundlePresentation();
 for (const browser of ['chromium', 'firefox']) {
   const output = path.join(dist, browser);
   await rm(output, { recursive: true, force: true });
@@ -61,6 +63,11 @@ for (const browser of ['chromium', 'firefox']) {
   await writeFile(path.join(output, 'vendor/docx-core.mjs'), docx.coreSource);
   await writeFile(path.join(output, 'vendor/docx-worker.js'), docx.workerSource);
   await writeFile(path.join(output, 'vendor/DOCX-LICENSES.txt'), docx.notices);
+  await writeFile(path.join(output, 'vendor/presentation-core.mjs'), presentation.coreSource);
+  await writeFile(path.join(output, 'vendor/presentation-worker.js'), presentation.workerSource);
+  await writeFile(path.join(output, 'vendor/PRESENTATION-LICENSES.txt'), presentation.notices);
+  for (const format of ['ppt','pptx']) await cp(path.join(root, `tests/fixtures/presentation/normal.${format}`), path.join(output, `demo.${format}`));
+  await cp(path.join(root, 'tests/fixtures/presentation/LICENSE'), path.join(output, 'PRESENTATION-DEMO-LICENSE.txt'));
   for (const file of ['pdf.mjs', 'pdf.worker.mjs']) await cp(path.join(vendor, 'legacy/build', file), path.join(output, 'vendor', file));
   await cp(path.join(vendor, 'web/pdf_viewer.css'), path.join(output, 'vendor/pdf_viewer.css'));
   for (const dir of ['cmaps', 'standard_fonts', 'wasm', 'web/images']) {

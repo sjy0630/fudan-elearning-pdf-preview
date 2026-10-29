@@ -12,7 +12,7 @@ const core = globalThis.FdPdf;
 const source = `${core.ORIGIN}/courses/123/files/456/download?download_frd=1`;
 
 test('routes exact registered suffixes and falls back to direct URL names', () => {
-  for (const [name, format] of [['a.png', 'png'], ['a.JPEG', 'jpeg'], ['a.webp', 'webp'], ['a.py', 'text']]) {
+  for (const [name, format] of [['a.png', 'png'], ['a.JPEG', 'jpeg'], ['a.webp', 'webp'], ['a.py', 'text'], ['a.PPT', 'ppt'], ['a.pptx', 'pptx']]) {
     assert.equal(core.describe(source, name).format, format);
     assert.equal(core.fileName(name, format), name);
   }
@@ -21,6 +21,10 @@ test('routes exact registered suffixes and falls back to direct URL names', () =
   assert.equal(core.describe(`${core.ORIGIN}/files/123/extra`, 'a.txt'), null);
   assert.equal(core.describe(`${core.ORIGIN}/files/123/extra.txt`, 'a.txt'), null);
   assert.equal(core.describe(source, 'a.pdf').format, 'pdf');
+});
+
+test('both presentation formats share the packaged presentation viewer', () => {
+  for (const id of ['ppt','pptx']) assert.equal(globalThis.CanvasPreviewCatalog.formats.find(f=>f.id===id)?.viewer,'presentation-viewer.html');
 });
 
 test('format-aware names keep suffix within the existing 180 character bound', () => {

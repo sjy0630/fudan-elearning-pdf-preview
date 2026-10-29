@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         复旦 eLearning PDF 弹窗预览
 // @namespace    https://elearning.fudan.edu.cn/
-// @version      1.3.0
-// @description  在 eLearning 页面中本地预览 PDF、DOCX、图片和文本，无需自动保存文件
+// @version      1.4.0
+// @description  在 eLearning 页面中本地预览 PDF、DOCX、PPT、PPTX、图片和文本，无需自动保存文件
 // @license      MIT
 // @homepageURL  https://github.com/sjy0630/fudan-elearning-pdf-preview
 // @supportURL   https://github.com/sjy0630/fudan-elearning-pdf-preview/issues
@@ -25,9 +25,13 @@
   /* EMBED_PDFJS_READER */
   /* EMBED_PDFJS_CSS */
   /* EMBED_DOCX_BUNDLE */
+  /* EMBED_PRESENTATION_BUNDLE */
 
   let docxBundle;
   const getDocxBundle = () => docxBundle || (docxBundle = createEmbeddedDocx());
+  let presentationBundle;
+  const getPresentationBundle = () => presentationBundle || (presentationBundle = createEmbeddedPresentation());
+  const isPresentation = format => format === 'ppt' || format === 'pptx';
 
   const pdfPreference = createPdfPreference({
     getValue: (...args) => { if (typeof GM_getValue !== 'function') throw new Error('Storage unavailable'); return GM_getValue(...args); },
@@ -142,7 +146,7 @@
     return blob;
   }
 
-  const state = { root: null, requestId: 0, readerId: 0, reader: null, readerController: null, objectUrl: null, controller: null, networkTimer: null, bytes: null, docxVerified: false, image: null, rotation: 0, zoom: 1, oldOverflow: '', trigger: null };
+  const state = { root: null, requestId: 0, readerId: 0, reader: null, readerController: null, presentationReader: null, presentationVerified: false, objectUrl: null, controller: null, networkTimer: null, bytes: null, docxVerified: false, image: null, rotation: 0, zoom: 1, oldOverflow: '', trigger: null };
   function element(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -168,6 +172,7 @@
       .fdpdf-body { position:relative; flex:1; min-height:0; overflow:auto; background:#e5e7eb; }
       .fdpdf-status { position:absolute; top:16px; left:16px; right:16px; z-index:1; padding:18px; background:white; border-radius:8px; white-space:pre-line; }
       .fdpdf-viewer,.fdpdf-docx { width:100%; height:100%; border:0; display:block; }
+      .fdpdf-presentation { height:100%; min-height:0; }
       .fdpdf-docx-note { flex:1; min-width:200px; color:#475569; }
       .fdpdf-docx-warnings { margin:6px 0 0; padding-left:20px; }
       .fdpdf-text { margin:0; padding:20px; min-height:100%; box-sizing:border-box; background:white; font:14px/1.6 ui-monospace,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -207,16 +212,23 @@
     const docxCancel = button('docx-cancel','取消',() => cancelDocx());
     const docxRetry = button('docx-retry','重试',() => { if (state.file?.format === 'docx') openDialog(state.file); });
     docxTools.append(docxNote,docxCancel,docxRetry);
+    const presentationTools = element('div','fdpdf-tools fdpdf-presentation-tools');
+    const presentationNote = element('div','fdpdf-docx-note','PPT / PPTX 静态预览（50 MiB、500 页）：字体、复杂图形和旧版矢量图片可能不同，不播放动画或音视频。');
+    const presentationCancel = button('presentation-cancel','取消',() => cancelPresentation());
+    const presentationRetry = button('presentation-retry','重试',() => { if (isPresentation(state.file?.format)) openDialog(state.file); });
+    presentationTools.append(presentationNote,presentationCancel,presentationRetry);
     const body = element('div','fdpdf-body');
     const status = element('div','fdpdf-status'); status.setAttribute('role','status');
     const viewer = element('iframe','fdpdf-viewer'); viewer.title = 'PDF 预览';
     const docx = element('iframe','fdpdf-docx'); docx.title = 'DOCX 内容预览'; docx.setAttribute('sandbox','');
     const pdfjsHost = element('div','fdpdf-pdfjs');
+    const presentationHost = element('div','fdpdf-presentation');
     const text = element('pre','fdpdf-text'); text.tabIndex = 0;
     const stage = element('div','fdpdf-image-stage');
-    body.append(status,viewer,docx,pdfjsHost,text,stage); dialog.append(header,pdfTools,imageTools,textTools,docxTools,body); root.append(dialog);
+    body.append(status,viewer,docx,pdfjsHost,presentationHost,text,stage); dialog.append(header,pdfTools,imageTools,textTools,docxTools,presentationTools,body); root.append(dialog);
     document.head.append(style); document.body.append(root);
     Object.assign(state,{root,title,originalLink,downloadLink,closeButton,pdfTools,readerSelect,preferenceWarning,pdfjsHost,imageTools,textTools,encoding,wrap,feedback,docxTools,docxWarnings,docxCancel,docxRetry,body,status,viewer,docx,text,stage});
+    Object.assign(state,{presentationHost,presentationTools,presentationCancel,presentationRetry});
     root.addEventListener('click',event => { if (event.target === root) closeDialog(); });
     document.addEventListener('keydown',event => { if (event.key === 'Escape' && !root.hidden) closeDialog(); });
   }
@@ -230,12 +242,16 @@
     state.requestId++;
     cleanupReader();
     state.controller?.abort(); state.controller = null;
+    state.presentationReader?.dispose(); state.presentationReader = null;
     clearTimeout(state.networkTimer); state.networkTimer = null;
     if (!state.root) return;
     state.viewer.onload = state.viewer.onerror = null; state.viewer.removeAttribute('src'); state.viewer.hidden = true;
     state.docx.onload = state.docx.onerror = null; state.docx.removeAttribute('srcdoc'); state.docx.hidden = true;
     state.docxWarnings.replaceChildren(); state.docxWarnings.hidden = true;
     state.docxCancel.hidden = state.docxRetry.hidden = true; state.docxVerified = false;
+    state.presentationHost.replaceChildren(); state.presentationHost.hidden = true;
+    state.presentationTools.hidden = state.presentationCancel.hidden = state.presentationRetry.hidden = true;
+    state.presentationVerified = false;
     if (state.image) { state.image.onload = state.image.onerror = null; state.image.removeAttribute('src'); state.image.remove(); }
     state.image = null; state.bytes = null; state.file = null;
     state.text.textContent = ''; state.text.hidden = true; state.stage.hidden = true;
@@ -313,6 +329,7 @@
     state.status.hidden = false; state.status.textContent = `${message}\n可以打开原文件继续查看或下载。`;
     state.originalLink.hidden = false;
     if (state.file?.format === 'docx') { state.docxCancel.hidden = true; state.docxRetry.hidden = false; }
+    if (isPresentation(state.file?.format)) { state.presentationCancel.hidden = true; state.presentationRetry.hidden = false; }
   }
   function cancelDocx(message = '已取消 DOCX 预览。') {
     const file = state.file;
@@ -324,6 +341,13 @@
   function setDownload(blob) {
     dropObjectUrl(); state.objectUrl = URL.createObjectURL(blob);
     state.downloadLink.href = state.objectUrl; state.downloadLink.download = state.file.name; state.downloadLink.hidden = false;
+  }
+  function cancelPresentation(message = '已取消幻灯片预览。') {
+    const file = state.file;
+    if (!isPresentation(file?.format)) return;
+    clearPending();
+    state.file = file; state.presentationTools.hidden = false;
+    showError(message);
   }
   function renderText() {
     dropObjectUrl(); state.text.hidden = true; state.text.textContent = ''; state.feedback.textContent = '';
@@ -369,6 +393,7 @@
     const timeout = setTimeout(() => {
       if (!current()) return;
       if (file.format === 'docx') cancelDocx('文件读取超时。');
+      else if (isPresentation(file.format)) cancelPresentation('文件读取超时。');
       else { clearPending(); showError('文件读取超时。'); }
     },60000);
     state.networkTimer = timeout;
@@ -376,7 +401,7 @@
       const blob = await retrievePdf(file,controller.signal);
       const bytes = new Uint8Array(await blob.arrayBuffer());
       if (!current()) return;
-      if (file.format === 'docx') { clearTimeout(timeout); state.networkTimer = null; }
+      if (file.format === 'docx' || isPresentation(file.format)) { clearTimeout(timeout); state.networkTimer = null; }
       const validated = CanvasFileFormats.validate(bytes,file.format,file.format === 'pdf' ? '' : blob.type);
       if (file.format === 'text') {
         state.bytes = bytes; state.textTools.hidden = false; renderText();
@@ -385,6 +410,20 @@
         state.bytes = bytes;
         setDownload(new Blob([bytes],{type:validated.mime}));
         mountReader();
+      } else if (isPresentation(file.format)) {
+        state.bytes = bytes; state.presentationHost.hidden = false;
+        state.status.textContent = '正在本地解析幻灯片…';
+        const bundle = getPresentationBundle();
+        const reader = await bundle.createPresentationReader({
+          host:state.presentationHost,bytes,format:file.format,mime:blob.type,signal:controller.signal,makeWorker:bundle.makeWorker,formats:CanvasFileFormats,
+          onVerified() {
+            if (!current()) return;
+            state.presentationVerified = true;
+            setDownload(new Blob([bytes],{type:validated.mime}));
+          },
+        });
+        if (!current()) { reader.dispose(); return; }
+        state.presentationReader = reader; state.status.hidden = true;
       } else if (file.format === 'docx') {
         state.bytes = bytes;
         state.status.textContent = '正在本地检查并转换 DOCX…';
@@ -429,9 +468,10 @@
       if (!current()) return;
       if (state.image) { state.image.removeAttribute('src'); state.image.remove(); state.image = null; }
       if (file.format === 'docx') { state.docx.removeAttribute('srcdoc'); state.docx.hidden = true; }
+      if (isPresentation(file.format)) { state.presentationReader?.dispose(); state.presentationReader = null; state.presentationHost.hidden = true; }
       // Package verification is the only DOCX download gate. Conversion and
       // sanitization failures must preserve the verified original bytes.
-      if (file.format !== 'docx' || !state.docxVerified) { state.bytes = null; dropObjectUrl(); }
+      if (!(file.format === 'docx' && state.docxVerified) && !(isPresentation(file.format) && state.presentationVerified)) { state.bytes = null; dropObjectUrl(); }
       showError(error.message || '无法读取文件。');
     } finally {
       clearTimeout(timeout);
@@ -449,6 +489,7 @@
     state.pdfTools.hidden = file.format !== 'pdf';
     state.docxTools.hidden = file.format !== 'docx';
     state.docxCancel.hidden = file.format !== 'docx';
+    state.presentationTools.hidden = state.presentationCancel.hidden = !isPresentation(file.format);
     if (file.format === 'pdf') loadReaderPreference();
     void loadPdf(file);
   }

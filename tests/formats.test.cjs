@@ -21,13 +21,25 @@ function webp(kind='VP8X',w=1,h=1) { let b;
 
 test('identifies only final supported suffixes and freezes descriptors', () => {
  const f=api();
- for(const [id,exts] of Object.entries({pdf:['pdf'],png:['png'],jpeg:['jpg','jpeg'],webp:['webp'],text:['txt','csv','log','json','xml','yaml','yml','c','h','cpp','hpp','py','js','ts','java','css','sql','sh']})) {
+ for(const [id,exts] of Object.entries({pdf:['pdf'],docx:['docx'],ppt:['ppt'],pptx:['pptx'],png:['png'],jpeg:['jpg','jpeg'],webp:['webp'],text:['txt','csv','log','json','xml','yaml','yml','c','h','cpp','hpp','py','js','ts','java','css','sql','sh']})) {
   for(const ext of exts) assert.equal(f.identify('notes.'+ext.toUpperCase()).id,id);
   const d=f.get(id);assert.ok(Object.isFrozen(d));assert.ok(Object.isFrozen(d.extensions));assert.equal(d.id,id);
  }
- for(const n of ['a.txt.exe','pdf','a.pdf/other','a.docx','x.png?download']) assert.equal(f.identify(n),null);
+ for(const n of ['a.txt.exe','pdf','a.pdf/other','a.doc','a.pptm','x.png?download']) assert.equal(f.identify(n),null);
  assert.equal(f.get('unknown'),null);assert.equal(f.get('toString'),null);
  assert.equal(f.get('pdf').limit,100*1024*1024);assert.equal(f.get('text').limit,2*1024*1024);assert.equal(f.get('png').limit,20*1024*1024);
+});
+test('presentation transfer screening distinguishes PPT and PPTX and enforces 50 MiB',()=>{
+ const f=api(), zip=bytes('PK\x03\x04'), cfb=Buffer.from('d0cf11e0a1b11ae1','hex');
+ for(const [id,b] of [['pptx',zip],['ppt',cfb]]) {
+  assert.equal(f.get(id).limit,50*1024*1024);
+  for(const mime of ['',f.get(id).mime,'application/octet-stream'])assert.equal(f.validate(b,id,mime).mime,f.get(id).mime);
+  assert.throws(()=>f.validate(b,id,'text/html'),/网页/);
+  assert.throws(()=>f.validate(b,id,'application/pdf'),/类型/);
+  assert.throws(()=>f.validate(Buffer.alloc(50*1024*1024+1),id),/大小/);
+  assert.throws(()=>f.validate(bytes('hello'),id));
+ }
+ assert.throws(()=>f.validate(cfb,'pptx'));assert.throws(()=>f.validate(zip,'ppt'));
 });
 test('safe filenames sanitize unsafe characters without inventing PDF extensions',()=>{
  const f=api();assert.equal(f.safeName('a/b\\c\u0000.png','png'),'a_b_c_.png');

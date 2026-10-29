@@ -1,17 +1,17 @@
 # 复旦 eLearning 文件预览
 
-在 eLearning 页面点击支持的文件名时，在当前页面弹窗预览 PDF、图片和文本，适用于网站自带预览不可用的情况。本项目与复旦大学及其 eLearning 平台无官方关联。
+在 eLearning 页面点击支持的文件名即可预览课件，适用于网站自带预览不可用的情况。本项目与复旦大学及其 eLearning 平台无官方关联。
 
 油猴脚本 **1.2.0** 支持图片、文本预览和 PDF 阅读器切换。下方安装链接跟随 `main` 更新；完整变更见 [1.2.0 说明](docs/releases/userscript-v1.2.0.md)。
 
-当前开发分支已完成 **1.3.0 DOCX 候选版**源码接入和打包，并于 2026-10-24 提交 Edge 审核，后台状态 **In review**。线上仍为 **1.1.1**；下面的 `main` 安装链接不会随本分支自动更新。候选功能、构建和提交状态见 [1.3.0 记录](docs/releases/v1.3.0-candidate.md)。本轮按维护者要求不运行测试，旧版验证记录不代表新 DOCX 界面已验证。
+当前开发分支为 **1.4.0 本地候选版**：油猴和独立扩展同步增加 `.pptx` 与真正的旧版 `.ppt` 静态预览，并保留 DOCX 功能。本轮不自动推送、上架或替换已安装版本，下面的 `main` 安装链接不会随本分支更新。范围和验证边界见 [1.4.0 记录](docs/releases/v1.4.0-candidate.md)。上次记录的 Edge 状态为 2026-10-24 的 1.3.0 In review / 1.1.1 Live，本轮未重新查询商店状态。
 
 ## 选择版本
 
 本仓库同时提供两个独立安装方式，共用格式校验，不要同时启用：
 
 - **油猴脚本版（`main` 分支）**：需要 Tampermonkey，按下方步骤安装，在当前页面弹窗预览。
-- **独立插件版（`extension/` 目录）**：无需 Tampermonkey，自带阅读器。Edge 用户可直接[从微软商店安装](https://microsoftedge.microsoft.com/addons/detail/ibgcgppobifaogaodeimafhpmoonioch)。[安装与构建说明](docs/EXTENSION.md)。本分支为 1.3.0 候选；商店和已发布安装包不会随源码修改自动升级，具体已发布版本以商店及 Releases 为准。
+- **独立插件版（`extension/` 目录）**：无需 Tampermonkey，自带阅读器。Edge 用户可直接[从微软商店安装](https://microsoftedge.microsoft.com/addons/detail/ibgcgppobifaogaodeimafhpmoonioch)。[安装与构建说明](docs/EXTENSION.md)。本分支为 1.4.0 候选；商店和已发布安装包不会随源码修改自动升级，具体已发布版本以商店及 Releases 为准。
 
 普通 Edge 用户推荐商店插件版。请选择其中一种使用，不要同时启用同名油猴脚本和插件。
 
@@ -29,7 +29,7 @@
 
 也可在 Tampermonkey 中选择“添加新脚本”，把 [`elearning-pdf-preview.user.js`](elearning-pdf-preview.user.js) 的完整内容粘贴到编辑器并保存；已装同名脚本时使用管理器的更新检查，或编辑现有脚本，避免重复启用。普通使用者只需这一个文件，无需 Node.js、构建环境或额外资源。内置阅读器使安装文件增大，保存时请稍等。1.2.0 的验证范围和仍未覆盖的环境见[阅读器验证记录](docs/READER-VALIDATION.md)。
 
-此前 1.2.0 脚本约 4.85 MiB，已通过 Chromium / Firefox 整合测试，以及 Chrome for Testing 155 + Tampermonkey 5.5.0 的真实手动安装与合成页面验收。这些是旧版证据，不覆盖 1.3.0。仍需真实学校课程试用；普通 URL 安装、升级权限提示和浏览器重启尚未验证，不代表所有浏览器或管理器都已兼容。
+此前 1.2.0 脚本约 4.85 MiB，已通过 Chromium / Firefox 整合测试，以及 Chrome for Testing 155 + Tampermonkey 5.5.0 的真实手动安装与合成页面验收。这些是旧版证据，不能代替 1.4.0 的真实管理器安装验收。本轮 PPT/PPTX 的隔离浏览器检查与未覆盖环境见 [1.4.0 记录](docs/releases/v1.4.0-candidate.md)。
 
 1.2.0 新增 `GM_getValue`、`GM_setValue` 权限，仅用来保存阅读器选择；如管理器提示权限变更，请核对后确认。未增加网站匹配或联网范围。
 
@@ -42,9 +42,12 @@
 | PDF | `.pdf` | 100 MiB |
 | 图片 | `.png`、`.jpg`、`.jpeg`、`.webp` | 20 MiB |
 | 文本与代码 | `.txt`、`.csv`、`.log`、`.json`、`.xml`、`.yaml`、`.yml`、`.c`、`.h`、`.cpp`、`.hpp`、`.py`、`.js`、`.ts`、`.java`、`.css`、`.sql`、`.sh` | 2 MiB |
-| Word 内容（仅 1.3.0 候选） | `.docx` | 20 MiB |
+| Word 内容（开发候选） | `.docx` | 20 MiB |
+| 幻灯片（1.4.0 开发候选） | `.pptx`、`.ppt`（PowerPoint 97–2003） | 50 MiB、500 页 |
 
-1 MiB = 1,048,576 字节。图片另检查宽高：单边不得超过 16,384 像素，总像素不得超过 40,000,000。脚本检查文件类型与必要头部，再交由浏览器解码；损坏图像、动画 WebP、登录网页响应及超限文件会显示错误。HTML、SVG、GIF、DOC、DOCM、PPTX、XLSX 等未列出的格式不接管。
+1 MiB = 1,048,576 字节。图片另检查宽高：单边不得超过 16,384 像素，总像素不得超过 40,000,000。脚本检查文件类型与必要头部，再交由浏览器解码；损坏图像、动画 WebP、登录网页响应及超限文件会显示错误。HTML、SVG、GIF、DOC、DOCM、PPTM、XLSX 等未列出的格式不接管。
+
+PPT / PPTX 逐页显示文字、常见形状、PNG/JPEG/静态 WebP 图片及基本表格，提供翻页、页码跳转、缩放和适应窗口。文件在本地后台解析，不上传课件，不需要 Office。预览为静态内容，不执行宏和嵌入对象，不播放动画或音视频，不读取外部图片。字体和复杂布局可能不同；旧版矢量图片、单张超过 20 MiB 的图片等会省略并显示提示。加密、损坏或超限文件会报错，可取消、重试或打开原文件。
 
 DOCX 以连续阅读区显示正文、列表、表格、脚注/尾注和常见内嵌图片，不还原 Word 分页、字体或复杂布局。不支持的内容会提示；可取消、重试或打开原文件。包检查完成后提供原字节下载，即使后续转换或显示准备失败仍保留该下载。全部在浏览器本地处理，依赖随安装包分发，不上传到在线 Office 服务。新界面的浏览器行为尚未验证，详细状态见 [DOCX 记录](docs/DOCX-VALIDATION.md)。
 
@@ -98,11 +101,13 @@ BROWSER_ENGINE=firefox npm run test:reader
 
 `test:reader` 使用有效的普通、中文、加密及损坏合成 PDF 检查阅读器；`test:pdfjs` 单独验证离线运行时和资源清理。准确的版本、结果及真实管理器与注入测试的区别见[阅读器验证记录](docs/READER-VALIDATION.md)。此前 1.1.0 的多格式证据单独保留在[旧版验证记录](docs/VALIDATION.md)，不能视为 1.2.0 全部兼容的证明。
 
-后续计划见[路线图](docs/ROADMAP.md)；本轮范围见[阅读器选择设计](docs/superpowers/specs/2026-10-09-userscript-reader-choice-design.md)。
+`npm run test:presentations` 检查本地 PPT / PPTX 样例在两版界面中的翻页、缩放、原字节下载和关闭清理；`PRESENTATION_BROWSER=firefox` 选择 Firefox。这是隔离浏览器检查，不等同于商店审核或真实管理器安装。
+
+后续计划见[路线图](docs/ROADMAP.md)；本轮范围见[PPT / PPTX 设计](docs/superpowers/specs/2026-10-29-presentation-preview-design.md)。
 
 ## 许可
 
-本项目代码以 [MIT 许可证](LICENSE)发布。内嵌 PDF.js、DOCX 转换与清理依赖及其资源保留各自许可证，完整第三方许可文本随生成脚本及扩展安装包分发。
+本项目代码以 [MIT 许可证](LICENSE)发布。内嵌 PDF.js、DOCX 与 PPT / PPTX 依赖及其资源保留各自许可证，完整第三方许可文本随生成脚本及扩展安装包分发。
 
 ## Star 历史
 

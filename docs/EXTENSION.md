@@ -10,13 +10,13 @@
 
 已有同学反馈无需 VPN 即可安装，但不能保证所有网络环境。商店搜索可能暂时找不到，直接使用上述链接；详见[搜索观察](STORE-SEARCH.md)。安装后可打开扩展内置示例 PDF，无需学校账号或网络。
 
-本分支已生成 **1.3.0 候选**：在 PDF、PNG/JPEG/WebP、文本及代码之外接入 DOCX 本地连续阅读（20 MiB 内），不保证 Word 分页还原；格式和大小限制见[仓库首页](../README.md)。PDF 支持翻页、页码跳转、缩放、选择文字和原字节下载，扩展版目前不提供阅读器切换。文本不执行，文件不上传第三方。默认权限仅限复旦 eLearning，跨服务器时由用户确认单域授权，详见[隐私说明](PRIVACY.md)。
+本分支为 **1.4.0 候选**：支持本地 PPTX / PowerPoint 97–2003 PPT 静态逐页预览（50 MiB、500 页），同步保留 DOCX 连续阅读（20 MiB 内）；格式和限制见[仓库首页](../README.md)。PDF 支持翻页、页码跳转、缩放、选择文字和原字节下载，扩展版目前不提供阅读器切换。文件不上传第三方。默认权限仅限复旦 eLearning，跨服务器时由用户确认单域授权，详见[隐私说明](PRIVACY.md)。
 
-2026-10-24 已提交 Edge **1.3.0**，Partner Center 显示 **In review**；**1.1.1 仍为 Live / Public**。本轮未运行测试或浏览器验证。准确候选状态见 [1.3.0 记录](releases/v1.3.0-candidate.md)。历史 Release 为[extension-v1.1.0](https://github.com/sjy0630/fudan-elearning-pdf-preview/releases/tag/extension-v1.1.0)，未将新候选发布到 GitHub；Firefox 包仍未签名。
+2026-10-24 的后台记录为 Edge **1.3.0 In review / 1.1.1 Live**，本轮没有重新查询或提交商店。1.4.0 尚未发布；本地检查及边界见 [1.4.0 记录](releases/v1.4.0-candidate.md)。历史 Release 为[extension-v1.1.0](https://github.com/sjy0630/fudan-elearning-pdf-preview/releases/tag/extension-v1.1.0)，Firefox 包仍未签名。
 
 ## Chrome / Edge 开发安装
 
-下载 Release 中明确标注 Chromium 的 ZIP，解压到长期保留的目录。在 `chrome://extensions` 或 `edge://extensions` 开启开发者模式，选择“加载已解压的扩展”，指向包含 manifest.json 的目录。手动安装不自动更新。GitHub 的 Source code 下载不是构建好的安装包；从本分支得到 1.3.0 候选请按下方步骤构建，不要把历史 Release 当作 DOCX 版本。
+下载 Release 中明确标注 Chromium 的 ZIP，解压到长期保留的目录。在 `chrome://extensions` 或 `edge://extensions` 开启开发者模式，选择“加载已解压的扩展”，指向包含 manifest.json 的目录。手动安装不自动更新。GitHub 的 Source code 下载不是构建好的安装包；从本分支得到 1.4.0 候选请按下方步骤构建，不要把历史 Release 当作 PPT / PPTX 版本。
 
 ## Firefox
 
