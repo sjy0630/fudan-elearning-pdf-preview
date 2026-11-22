@@ -1513,8 +1513,10 @@ function createPdfjsReader({ container, bytes, signal, onError }) {
       throw new Error('PDF 页面尺寸无效。');
     }
   }
-  async function paint() {
+  async function paint(preservePosition = false) {
     const id = ++generation, number = pageNumber;
+    const previousSheet = scroll.firstElementChild;
+    const position = preservePosition && previousSheet ? { x: scroll.scrollLeft / previousSheet.offsetWidth, y: scroll.scrollTop / previousSheet.offsetHeight } : null;
     cancelPaint();
     const current = () => !closed && id === generation;
     try {
@@ -1537,6 +1539,7 @@ function createPdfjsReader({ container, bytes, signal, onError }) {
       canvas.style.width = `${viewport.width}px`; canvas.style.height = `${viewport.height}px`;
       const layer = document.createElement('div'); layer.className = 'fdpdf-text-layer textLayer';
       sheet.append(canvas, layer); scroll.replaceChildren(sheet);
+      if (position) scroll.scrollTo({ left: position.x * viewport.width, top: position.y * viewport.height, behavior: 'instant' });
       const render = page.render({ canvasContext: canvas.getContext('2d'), viewport, transform: [canvas.width / viewport.width, 0, 0, canvas.height / viewport.height, 0, 0] });
       const text = new library.TextLayer({ textContentSource: page.streamTextContent({ includeMarkedContent: true, disableNormalization: true }), container: layer, viewport });
       canvasTask = render; textTask = text;
@@ -1591,7 +1594,7 @@ function createPdfjsReader({ container, bytes, signal, onError }) {
       documentProxy = await opened.promise;
       if (closed) return;
       pageCount.textContent = `/ ${documentProxy.numPages}`; pageInput.max = String(documentProxy.numPages);
-      observer = new ResizeObserver(() => { if (!closed && usable && fit && scroll.clientWidth !== lastFitWidth) void paint(); }); observer.observe(scroll);
+      observer = new ResizeObserver(() => { if (!closed && usable && fit && scroll.clientWidth !== lastFitWidth) void paint(true); }); observer.observe(scroll);
       await paint();
     } catch (error) { if (!closed) fail(error); }
   })();
@@ -3003,6 +3006,110 @@ function createEmbeddedPresentation() {
     }
   }});
 }
+  function createDialogWindow({ root, dialog, header, title, maximizeButton, resetButton, hint }) {
+  let bounds, restoredBounds, maximized = false, gesture = null, suppressClick = false;
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  const viewport = () => ({ width: root.clientWidth, height: root.clientHeight });
+  const minimum = view => ({ width: Math.min(480, view.width), height: Math.min(320, view.height) });
+  function constrain(rect) {
+    const view = viewport(), min = minimum(view);
+    const width = clamp(rect.width, min.width, view.width), height = clamp(rect.height, min.height, view.height);
+    return { x: clamp(rect.x, 0, view.width - width), y: clamp(rect.y, 0, view.height - height), width, height };
+  }
+  function centered() {
+    const view = viewport(), margin = view.width <= 600 ? 8 : 16;
+    const width = Math.min(1200, view.width - margin * 2), height = Math.min(900, view.height - margin * 2);
+    return constrain({ x: (view.width - width) / 2, y: (view.height - height) / 2, width, height });
+  }
+  function apply(rect) {
+    bounds = rect;
+    Object.assign(dialog.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+    dialog.classList.toggle('fdpdf-maximized', maximized);
+    maximizeButton.textContent = maximized ? '还原' : '最大化';
+    maximizeButton.setAttribute('aria-label', maximized ? '还原窗口' : '最大化窗口');
+    maximizeButton.setAttribute('aria-pressed', String(maximized));
+    hint.textContent = maximized ? '双击标题栏或点“还原”恢复窗口' : '拖动标题栏移动 · 拖动边缘调整大小';
+  }
+  function show() {
+    const view = viewport();
+    apply(maximized ? { x: 0, y: 0, ...view } : bounds ? constrain(bounds) : centered());
+  }
+  function finish(event) {
+    if (!gesture || (event?.pointerId != null && event.pointerId !== gesture.id)) return;
+    const previous = gesture; gesture = null;
+    root.classList.remove('fdpdf-window-active'); root.style.removeProperty('cursor');
+    if (previous.target.hasPointerCapture(previous.id)) previous.target.releasePointerCapture(previous.id);
+  }
+  function toggleMaximize() {
+    finish();
+    if (maximized) { maximized = false; apply(constrain(restoredBounds || centered())); }
+    else { restoredBounds = { ...bounds }; maximized = true; show(); }
+  }
+  function reset() {
+    finish(); maximized = false; restoredBounds = null; apply(centered());
+  }
+  function resize(rect, direction, dx, dy) {
+    const view = viewport(), min = minimum(view);
+    let left = rect.x, top = rect.y, right = rect.x + rect.width, bottom = rect.y + rect.height;
+    if (direction.includes('w')) left = clamp(left + dx, 0, right - min.width);
+    if (direction.includes('e')) right = clamp(right + dx, left + min.width, view.width);
+    if (direction.includes('n')) top = clamp(top + dy, 0, bottom - min.height);
+    if (direction.includes('s')) bottom = clamp(bottom + dy, top + min.height, view.height);
+    return { x: left, y: top, width: right - left, height: bottom - top };
+  }
+  const interactive = target => target.closest('button, a, input, select, textarea, label, [contenteditable]');
+  for (const direction of ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']) {
+    const handle = document.createElement('div');
+    handle.className = `fdpdf-resize fdpdf-resize-${direction}`; handle.dataset.resize = direction;
+    handle.setAttribute('aria-hidden', 'true'); dialog.append(handle);
+  }
+  // Keep pointer capture outside the reader, including native PDF plugin surfaces.
+  const shield = document.createElement('div'); shield.className = 'fdpdf-window-shield'; shield.setAttribute('aria-hidden', 'true'); root.append(shield);
+  root.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || event.isPrimary === false) return;
+    suppressClick = false;
+    if (root.hidden || maximized || gesture) return;
+    const direction = event.target.closest('[data-resize]')?.dataset.resize;
+    if (!direction && (!header.contains(event.target) || interactive(event.target))) return;
+    event.preventDefault();
+    title.focus({ preventScroll: true });
+    gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, bounds: { ...bounds }, direction, target: direction ? event.target.closest('[data-resize]') : header };
+    root.style.cursor = direction ? `${direction}-resize` : 'grabbing';
+    root.classList.add('fdpdf-window-active');
+    gesture.target.setPointerCapture(event.pointerId);
+  });
+  root.addEventListener('pointermove', event => {
+    if (!gesture || event.pointerId !== gesture.id) return;
+    // Some browsers omit pointerup when the mouse is released outside their window.
+    if (event.pointerType === 'mouse' && event.buttons === 0) { finish(event); return; }
+    const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) suppressClick = true;
+    if (!suppressClick) return;
+    event.preventDefault();
+    apply(gesture.direction ? resize(gesture.bounds, gesture.direction, dx, dy) : constrain({ ...gesture.bounds, x: gesture.bounds.x + dx, y: gesture.bounds.y + dy }));
+  });
+  window.addEventListener('pointerup', finish, true);
+  window.addEventListener('pointercancel', finish, true);
+  root.addEventListener('lostpointercapture', finish);
+  root.addEventListener('click', event => {
+    if (suppressClick) { event.preventDefault(); event.stopImmediatePropagation(); suppressClick = false; }
+  }, true);
+  header.addEventListener('dblclick', event => { if (!interactive(event.target)) { event.preventDefault(); toggleMaximize(); } });
+  maximizeButton.addEventListener('click', toggleMaximize);
+  resetButton.addEventListener('click', reset);
+  title.tabIndex = 0;
+  title.title = '拖动移动；双击最大化 / 还原；聚焦后用方向键移动，Shift + 方向键调整大小';
+  title.addEventListener('keydown', event => {
+    const delta = { ArrowLeft: [-20, 0], ArrowRight: [20, 0], ArrowUp: [0, -20], ArrowDown: [0, 20] }[event.key];
+    if (!delta || event.altKey || event.ctrlKey || event.metaKey || maximized) return;
+    event.preventDefault();
+    const [dx, dy] = delta;
+    apply(event.shiftKey ? resize(bounds, 'se', dx, dy) : constrain({ ...bounds, x: bounds.x + dx, y: bounds.y + dy }));
+  });
+  window.addEventListener('blur', () => finish());
+  window.addEventListener('resize', () => { finish(); if (!root.hidden) show(); });
+  return { show, cancel: () => { finish(); suppressClick = false; } };
+}
 
   let docxBundle;
   const getDocxBundle = () => docxBundle || (docxBundle = createEmbeddedDocx());
@@ -3142,9 +3249,34 @@ function createEmbeddedPresentation() {
     style.textContent = `
       .fdpdf-overlay[hidden], .fdpdf-overlay [hidden] { display:none !important; }
       .fdpdf-overlay { position:fixed; inset:0; z-index:2147483647; display:flex; align-items:center; justify-content:center; padding:16px; box-sizing:border-box; background:#0f172aad; font:14px/1.5 system-ui,sans-serif; }
-      .fdpdf-dialog { display:flex; flex-direction:column; width:min(1200px,100%); height:min(900px,100%); min-height:280px; overflow:hidden; border-radius:12px; background:white; color:#1f2937; box-shadow:0 20px 70px #0006; }
+      .fdpdf-dialog { position:absolute; display:flex; flex-direction:column; box-sizing:border-box; margin:0; overflow:hidden; border-radius:12px; background:white; color:#1f2937; box-shadow:0 20px 70px #0006; }
       .fdpdf-header,.fdpdf-tools { display:flex; align-items:center; gap:8px; padding:10px 16px; flex-wrap:wrap; border-bottom:1px solid #e5e7eb; }
-      .fdpdf-title { flex:1; min-width:0; margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; }
+      .fdpdf-header { cursor:grab; touch-action:none; user-select:none; flex-shrink:0; }
+      .fdpdf-title { flex:1 1 180px; min-width:0; margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; }
+      .fdpdf-title:focus-visible { outline:2px solid #2563eb; outline-offset:3px; border-radius:2px; }
+      .fdpdf-pdf-tools { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+      .fdpdf-reader-label { display:inline-flex; align-items:center; gap:6px; margin:0; font:inherit; white-space:nowrap; }
+      .fdpdf-reader-select { box-sizing:border-box; width:auto; height:34px; min-height:0; margin:0; padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; background:white; color:#334155; font:inherit; cursor:pointer; }
+      .fdpdf-preference-warning:empty,.fdpdf-tab-feedback:empty { display:none; }
+      .fdpdf-window-footer { flex-shrink:0; padding:4px 28px 4px 16px; color:#64748b; background:#f8fafc; border-top:1px solid #e2e8f0; font-size:12px; }
+      .fdpdf-maximized { border-radius:0; }
+      .fdpdf-maximized .fdpdf-header { cursor:default; }
+      .fdpdf-maximized .fdpdf-resize { display:none; }
+      .fdpdf-window-shield { display:none; position:absolute; inset:0; z-index:10; cursor:inherit; }
+      .fdpdf-window-active .fdpdf-window-shield { display:block; }
+      .fdpdf-window-active { user-select:none; }
+      .fdpdf-window-active .fdpdf-body { pointer-events:none; }
+      .fdpdf-resize { position:absolute; z-index:5; touch-action:none; }
+      .fdpdf-resize-n,.fdpdf-resize-s { left:12px; right:12px; height:6px; cursor:ns-resize; }
+      .fdpdf-resize-n { top:0; } .fdpdf-resize-s { bottom:0; }
+      .fdpdf-resize-e,.fdpdf-resize-w { top:12px; bottom:12px; width:6px; cursor:ew-resize; }
+      .fdpdf-resize-e { right:0; } .fdpdf-resize-w { left:0; }
+      .fdpdf-resize-ne,.fdpdf-resize-nw,.fdpdf-resize-se,.fdpdf-resize-sw { width:12px; height:12px; }
+      .fdpdf-resize-ne { top:0; right:0; cursor:nesw-resize; }
+      .fdpdf-resize-nw { top:0; left:0; cursor:nwse-resize; }
+      .fdpdf-resize-sw { bottom:0; left:0; cursor:nesw-resize; }
+      .fdpdf-resize-se { bottom:0; right:0; width:22px; height:22px; cursor:nwse-resize; }
+      .fdpdf-resize-se::after { content:''; position:absolute; right:5px; bottom:5px; width:10px; height:10px; border-right:2px solid #64748b; border-bottom:2px solid #64748b; }
       .fdpdf-action,.fdpdf-encoding { border:1px solid #cbd5e1; border-radius:6px; padding:6px 10px; background:white; color:#1d4ed8; text-decoration:none; font:inherit; cursor:pointer; }
       .fdpdf-body { position:relative; flex:1; min-height:0; overflow:auto; background:#e5e7eb; }
       .fdpdf-status { position:absolute; top:16px; left:16px; right:16px; z-index:1; padding:18px; background:white; border-radius:8px; white-space:pre-line; }
@@ -3156,7 +3288,7 @@ function createEmbeddedPresentation() {
       .fdpdf-image-stage { position:relative; margin:auto; }
       .fdpdf-image { display:block; position:absolute; left:50%; top:50%; max-width:none; max-height:none; }
       .fdpdf-feedback { color:#334155; }
-      @media(max-width:600px) { .fdpdf-overlay { padding:0; } .fdpdf-dialog { height:100%; border-radius:0; } .fdpdf-title { flex-basis:100%; } }
+      @media(max-width:600px) { .fdpdf-header,.fdpdf-tools { gap:6px; padding:8px 12px; } .fdpdf-title { flex-basis:100%; } .fdpdf-action { padding:5px 8px; } }
     ` + pdfjsReaderCss;
     const root = element('div','fdpdf-overlay'); root.hidden = true;
     const dialog = element('section','fdpdf-dialog'); dialog.setAttribute('role','dialog'); dialog.setAttribute('aria-modal','true'); dialog.setAttribute('aria-labelledby','fdpdf-title');
@@ -3165,14 +3297,18 @@ function createEmbeddedPresentation() {
     const originalLink = element('a','fdpdf-action','打开原文件'); originalLink.target = '_blank'; originalLink.rel = 'noopener noreferrer';
     const downloadLink = element('a','fdpdf-action fdpdf-download','下载文件');
     const closeButton = button('close','关闭',closeDialog); closeButton.classList.add('fdpdf-close');
-    header.append(title,originalLink,downloadLink,closeButton);
-    const pdfTools = element('div','fdpdf-tools fdpdf-pdf-tools');
-    const readerLabel = element('label','','阅读器 ');
+    const tabButton = button('open-tab','新标签页',openPdfTab); tabButton.title = '在独立标签页中用浏览器自带阅读器查看 PDF';
+    const maximizeButton = button('maximize','最大化',() => {});
+    const resetButton = button('reset-window','重置窗口',() => {});
+    const pdfTools = element('div','fdpdf-pdf-tools');
+    const readerLabel = element('label','fdpdf-reader-label','阅读器');
     const readerSelect = element('select','fdpdf-reader-select'); readerSelect.setAttribute('aria-label','阅读器');
     for (const [value,label] of [['native','浏览器自带'],['pdfjs','内置 PDF.js']]) { const option = element('option','',label); option.value = value; readerSelect.append(option); }
     readerSelect.addEventListener('change',() => chooseReader(readerSelect.value)); readerLabel.append(readerSelect);
     const preferenceWarning = element('span','fdpdf-preference-warning'); preferenceWarning.setAttribute('role','status');
-    pdfTools.append(readerLabel,preferenceWarning);
+    const tabFeedback = element('span','fdpdf-tab-feedback'); tabFeedback.setAttribute('role','status');
+    pdfTools.append(readerLabel,preferenceWarning,tabFeedback);
+    header.append(title,pdfTools,originalLink,downloadLink,tabButton,maximizeButton,resetButton,closeButton);
     const imageTools = element('div','fdpdf-tools fdpdf-image-tools');
     imageTools.append(button('zoom-in','放大',() => { state.zoom *= 1.25; layoutImage(); }),button('zoom-out','缩小',() => { state.zoom /= 1.25; layoutImage(); }),button('rotate','旋转 90°',() => { state.rotation = (state.rotation + 90) % 360; fitImage(); }),button('fit','适应窗口',fitImage));
     const textTools = element('div','fdpdf-tools');
@@ -3202,10 +3338,12 @@ function createEmbeddedPresentation() {
     const presentationHost = element('div','fdpdf-presentation');
     const text = element('pre','fdpdf-text'); text.tabIndex = 0;
     const stage = element('div','fdpdf-image-stage');
-    body.append(status,viewer,docx,pdfjsHost,presentationHost,text,stage); dialog.append(header,pdfTools,imageTools,textTools,docxTools,presentationTools,body); root.append(dialog);
+    const windowHint = element('footer','fdpdf-window-footer');
+    body.append(status,viewer,docx,pdfjsHost,presentationHost,text,stage); dialog.append(header,imageTools,textTools,docxTools,presentationTools,body,windowHint); root.append(dialog);
     document.head.append(style); document.body.append(root);
     Object.assign(state,{root,title,originalLink,downloadLink,closeButton,pdfTools,readerSelect,preferenceWarning,pdfjsHost,imageTools,textTools,encoding,wrap,feedback,docxTools,docxWarnings,docxCancel,docxRetry,body,status,viewer,docx,text,stage});
     Object.assign(state,{presentationHost,presentationTools,presentationCancel,presentationRetry});
+    Object.assign(state,{tabButton,tabFeedback,windowController:createDialogWindow({root,dialog,header,title,maximizeButton,resetButton,hint:windowHint})});
     root.addEventListener('click',event => { if (event.target === root) closeDialog(); });
     document.addEventListener('keydown',event => { if (event.key === 'Escape' && !root.hidden) closeDialog(); });
   }
@@ -3222,6 +3360,7 @@ function createEmbeddedPresentation() {
     state.presentationReader?.dispose(); state.presentationReader = null;
     clearTimeout(state.networkTimer); state.networkTimer = null;
     if (!state.root) return;
+    state.tabButton.hidden = true; state.tabFeedback.textContent = '';
     state.viewer.onload = state.viewer.onerror = null; state.viewer.removeAttribute('src'); state.viewer.hidden = true;
     state.docx.onload = state.docx.onerror = null; state.docx.removeAttribute('srcdoc'); state.docx.hidden = true;
     state.docxWarnings.replaceChildren(); state.docxWarnings.hidden = true;
@@ -3298,9 +3437,30 @@ function createEmbeddedPresentation() {
   }
   function closeDialog() {
     if (!state.root || state.root.hidden) return;
+    state.windowController.cancel();
     clearPending(); state.root.hidden = true;
     document.body.style.overflow = state.oldOverflow;
     state.trigger?.focus(); state.trigger = null;
+  }
+  function openPdfTab() {
+    if (state.file?.format !== 'pdf' || !state.bytes || !state.objectUrl) return;
+    const tab = window.open('about:blank', '_blank');
+    if (!tab) { state.tabFeedback.textContent = '新标签页被浏览器拦截，请允许本站弹出窗口后重试。'; return; }
+    try {
+      tab.opener = null;
+      const doc = tab.document;
+      doc.title = state.file.name;
+      doc.documentElement.lang = 'zh-CN';
+      doc.body.style.cssText = 'margin:0;height:100vh;overflow:hidden;background:#525659';
+      const frame = doc.createElement('iframe');
+      frame.title = state.file.name; frame.style.cssText = 'display:block;width:100%;height:100%;border:0';
+      // The new document owns its copy and URL, so closing/reloading the course page is safe.
+      frame.src = tab.URL.createObjectURL(new tab.Blob([state.bytes], { type: 'application/pdf' }));
+      doc.body.replaceChildren(frame);
+      state.tabFeedback.textContent = '';
+    } catch {
+      tab.close(); state.tabFeedback.textContent = '无法打开独立预览，请继续使用当前窗口或打开原文件。';
+    }
   }
   function showError(message) {
     state.status.hidden = false; state.status.textContent = `${message}\n可以打开原文件继续查看或下载。`;
@@ -3386,6 +3546,7 @@ function createEmbeddedPresentation() {
         clearTimeout(timeout);
         state.bytes = bytes;
         setDownload(new Blob([bytes],{type:validated.mime}));
+        state.tabButton.hidden = false;
         mountReader();
       } else if (isPresentation(file.format)) {
         state.bytes = bytes; state.presentationHost.hidden = false;
@@ -3462,7 +3623,7 @@ function createEmbeddedPresentation() {
     clearPending(); state.file = file; state.trigger = file.link;
     state.title.textContent = file.name; state.originalLink.href = file.url.href; state.originalLink.hidden = false;
     state.status.textContent = '正在读取文件…'; state.status.hidden = false;
-    state.root.hidden = false; document.body.style.overflow = 'hidden'; state.closeButton.focus();
+    state.root.hidden = false; state.windowController.show(); document.body.style.overflow = 'hidden'; state.closeButton.focus();
     state.pdfTools.hidden = file.format !== 'pdf';
     state.docxTools.hidden = file.format !== 'docx';
     state.docxCancel.hidden = file.format !== 'docx';

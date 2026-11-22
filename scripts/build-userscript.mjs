@@ -7,7 +7,7 @@ import { bundlePresentation } from './bundle-presentation.mjs';
 
 const root = new URL('../', import.meta.url);
 export async function generateUserscript() {
-  const [template, registry, pdfjs, runtime, preference, reader, css, docx, presentation] = await Promise.all([
+  const [template, registry, pdfjs, runtime, preference, reader, css, docx, presentation, dialogWindow] = await Promise.all([
     readFile(new URL('userscript/preview.template.js', root), 'utf8'),
     readFile(new URL('shared/formats.js', root), 'utf8'),
     bundlePdfjs(),
@@ -17,6 +17,7 @@ export async function generateUserscript() {
     readFile(new URL('userscript/pdfjs-reader.css', root), 'utf8'),
     bundleDocx(),
     bundlePresentation(),
+    readFile(new URL('userscript/dialog-window.js', root), 'utf8'),
   ]);
   const marker = '/* EMBED_SHARED_FORMATS */';
   if (template.split(marker).length !== 2 || !registry.includes('globalThis.CanvasFileFormats =')) {
@@ -29,6 +30,7 @@ export async function generateUserscript() {
     ['/* EMBED_PDFJS_CSS */', `const pdfjsReaderCss = ${JSON.stringify(css)};`],
     ['/* EMBED_DOCX_BUNDLE */', docx.userscriptSource],
     ['/* EMBED_PRESENTATION_BUNDLE */', presentation.userscriptSource],
+    ['/* EMBED_DIALOG_WINDOW */', dialogWindow],
   ]) {
     if (output.split(embedMarker).length !== 2) throw new Error(`Expected exactly one ${embedMarker} marker`);
     output = output.replace(embedMarker, () => source.trimEnd());

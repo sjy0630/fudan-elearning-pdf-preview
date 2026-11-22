@@ -65,8 +65,10 @@ function createPdfjsReader({ container, bytes, signal, onError }) {
       throw new Error('PDF 页面尺寸无效。');
     }
   }
-  async function paint() {
+  async function paint(preservePosition = false) {
     const id = ++generation, number = pageNumber;
+    const previousSheet = scroll.firstElementChild;
+    const position = preservePosition && previousSheet ? { x: scroll.scrollLeft / previousSheet.offsetWidth, y: scroll.scrollTop / previousSheet.offsetHeight } : null;
     cancelPaint();
     const current = () => !closed && id === generation;
     try {
@@ -89,6 +91,7 @@ function createPdfjsReader({ container, bytes, signal, onError }) {
       canvas.style.width = `${viewport.width}px`; canvas.style.height = `${viewport.height}px`;
       const layer = document.createElement('div'); layer.className = 'fdpdf-text-layer textLayer';
       sheet.append(canvas, layer); scroll.replaceChildren(sheet);
+      if (position) scroll.scrollTo({ left: position.x * viewport.width, top: position.y * viewport.height, behavior: 'instant' });
       const render = page.render({ canvasContext: canvas.getContext('2d'), viewport, transform: [canvas.width / viewport.width, 0, 0, canvas.height / viewport.height, 0, 0] });
       const text = new library.TextLayer({ textContentSource: page.streamTextContent({ includeMarkedContent: true, disableNormalization: true }), container: layer, viewport });
       canvasTask = render; textTask = text;
@@ -143,7 +146,7 @@ function createPdfjsReader({ container, bytes, signal, onError }) {
       documentProxy = await opened.promise;
       if (closed) return;
       pageCount.textContent = `/ ${documentProxy.numPages}`; pageInput.max = String(documentProxy.numPages);
-      observer = new ResizeObserver(() => { if (!closed && usable && fit && scroll.clientWidth !== lastFitWidth) void paint(); }); observer.observe(scroll);
+      observer = new ResizeObserver(() => { if (!closed && usable && fit && scroll.clientWidth !== lastFitWidth) void paint(true); }); observer.observe(scroll);
       await paint();
     } catch (error) { if (!closed) fail(error); }
   })();

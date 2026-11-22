@@ -26,6 +26,7 @@
   /* EMBED_PDFJS_CSS */
   /* EMBED_DOCX_BUNDLE */
   /* EMBED_PRESENTATION_BUNDLE */
+  /* EMBED_DIALOG_WINDOW */
 
   let docxBundle;
   const getDocxBundle = () => docxBundle || (docxBundle = createEmbeddedDocx());
@@ -165,9 +166,34 @@
     style.textContent = `
       .fdpdf-overlay[hidden], .fdpdf-overlay [hidden] { display:none !important; }
       .fdpdf-overlay { position:fixed; inset:0; z-index:2147483647; display:flex; align-items:center; justify-content:center; padding:16px; box-sizing:border-box; background:#0f172aad; font:14px/1.5 system-ui,sans-serif; }
-      .fdpdf-dialog { display:flex; flex-direction:column; width:min(1200px,100%); height:min(900px,100%); min-height:280px; overflow:hidden; border-radius:12px; background:white; color:#1f2937; box-shadow:0 20px 70px #0006; }
+      .fdpdf-dialog { position:absolute; display:flex; flex-direction:column; box-sizing:border-box; margin:0; overflow:hidden; border-radius:12px; background:white; color:#1f2937; box-shadow:0 20px 70px #0006; }
       .fdpdf-header,.fdpdf-tools { display:flex; align-items:center; gap:8px; padding:10px 16px; flex-wrap:wrap; border-bottom:1px solid #e5e7eb; }
-      .fdpdf-title { flex:1; min-width:0; margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; }
+      .fdpdf-header { cursor:grab; touch-action:none; user-select:none; flex-shrink:0; }
+      .fdpdf-title { flex:1 1 180px; min-width:0; margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; }
+      .fdpdf-title:focus-visible { outline:2px solid #2563eb; outline-offset:3px; border-radius:2px; }
+      .fdpdf-pdf-tools { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+      .fdpdf-reader-label { display:inline-flex; align-items:center; gap:6px; margin:0; font:inherit; white-space:nowrap; }
+      .fdpdf-reader-select { box-sizing:border-box; width:auto; height:34px; min-height:0; margin:0; padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; background:white; color:#334155; font:inherit; cursor:pointer; }
+      .fdpdf-preference-warning:empty,.fdpdf-tab-feedback:empty { display:none; }
+      .fdpdf-window-footer { flex-shrink:0; padding:4px 28px 4px 16px; color:#64748b; background:#f8fafc; border-top:1px solid #e2e8f0; font-size:12px; }
+      .fdpdf-maximized { border-radius:0; }
+      .fdpdf-maximized .fdpdf-header { cursor:default; }
+      .fdpdf-maximized .fdpdf-resize { display:none; }
+      .fdpdf-window-shield { display:none; position:absolute; inset:0; z-index:10; cursor:inherit; }
+      .fdpdf-window-active .fdpdf-window-shield { display:block; }
+      .fdpdf-window-active { user-select:none; }
+      .fdpdf-window-active .fdpdf-body { pointer-events:none; }
+      .fdpdf-resize { position:absolute; z-index:5; touch-action:none; }
+      .fdpdf-resize-n,.fdpdf-resize-s { left:12px; right:12px; height:6px; cursor:ns-resize; }
+      .fdpdf-resize-n { top:0; } .fdpdf-resize-s { bottom:0; }
+      .fdpdf-resize-e,.fdpdf-resize-w { top:12px; bottom:12px; width:6px; cursor:ew-resize; }
+      .fdpdf-resize-e { right:0; } .fdpdf-resize-w { left:0; }
+      .fdpdf-resize-ne,.fdpdf-resize-nw,.fdpdf-resize-se,.fdpdf-resize-sw { width:12px; height:12px; }
+      .fdpdf-resize-ne { top:0; right:0; cursor:nesw-resize; }
+      .fdpdf-resize-nw { top:0; left:0; cursor:nwse-resize; }
+      .fdpdf-resize-sw { bottom:0; left:0; cursor:nesw-resize; }
+      .fdpdf-resize-se { bottom:0; right:0; width:22px; height:22px; cursor:nwse-resize; }
+      .fdpdf-resize-se::after { content:''; position:absolute; right:5px; bottom:5px; width:10px; height:10px; border-right:2px solid #64748b; border-bottom:2px solid #64748b; }
       .fdpdf-action,.fdpdf-encoding { border:1px solid #cbd5e1; border-radius:6px; padding:6px 10px; background:white; color:#1d4ed8; text-decoration:none; font:inherit; cursor:pointer; }
       .fdpdf-body { position:relative; flex:1; min-height:0; overflow:auto; background:#e5e7eb; }
       .fdpdf-status { position:absolute; top:16px; left:16px; right:16px; z-index:1; padding:18px; background:white; border-radius:8px; white-space:pre-line; }
@@ -179,7 +205,7 @@
       .fdpdf-image-stage { position:relative; margin:auto; }
       .fdpdf-image { display:block; position:absolute; left:50%; top:50%; max-width:none; max-height:none; }
       .fdpdf-feedback { color:#334155; }
-      @media(max-width:600px) { .fdpdf-overlay { padding:0; } .fdpdf-dialog { height:100%; border-radius:0; } .fdpdf-title { flex-basis:100%; } }
+      @media(max-width:600px) { .fdpdf-header,.fdpdf-tools { gap:6px; padding:8px 12px; } .fdpdf-title { flex-basis:100%; } .fdpdf-action { padding:5px 8px; } }
     ` + pdfjsReaderCss;
     const root = element('div','fdpdf-overlay'); root.hidden = true;
     const dialog = element('section','fdpdf-dialog'); dialog.setAttribute('role','dialog'); dialog.setAttribute('aria-modal','true'); dialog.setAttribute('aria-labelledby','fdpdf-title');
@@ -188,14 +214,18 @@
     const originalLink = element('a','fdpdf-action','打开原文件'); originalLink.target = '_blank'; originalLink.rel = 'noopener noreferrer';
     const downloadLink = element('a','fdpdf-action fdpdf-download','下载文件');
     const closeButton = button('close','关闭',closeDialog); closeButton.classList.add('fdpdf-close');
-    header.append(title,originalLink,downloadLink,closeButton);
-    const pdfTools = element('div','fdpdf-tools fdpdf-pdf-tools');
-    const readerLabel = element('label','','阅读器 ');
+    const tabButton = button('open-tab','新标签页',openPdfTab); tabButton.title = '在独立标签页中用浏览器自带阅读器查看 PDF';
+    const maximizeButton = button('maximize','最大化',() => {});
+    const resetButton = button('reset-window','重置窗口',() => {});
+    const pdfTools = element('div','fdpdf-pdf-tools');
+    const readerLabel = element('label','fdpdf-reader-label','阅读器');
     const readerSelect = element('select','fdpdf-reader-select'); readerSelect.setAttribute('aria-label','阅读器');
     for (const [value,label] of [['native','浏览器自带'],['pdfjs','内置 PDF.js']]) { const option = element('option','',label); option.value = value; readerSelect.append(option); }
     readerSelect.addEventListener('change',() => chooseReader(readerSelect.value)); readerLabel.append(readerSelect);
     const preferenceWarning = element('span','fdpdf-preference-warning'); preferenceWarning.setAttribute('role','status');
-    pdfTools.append(readerLabel,preferenceWarning);
+    const tabFeedback = element('span','fdpdf-tab-feedback'); tabFeedback.setAttribute('role','status');
+    pdfTools.append(readerLabel,preferenceWarning,tabFeedback);
+    header.append(title,pdfTools,originalLink,downloadLink,tabButton,maximizeButton,resetButton,closeButton);
     const imageTools = element('div','fdpdf-tools fdpdf-image-tools');
     imageTools.append(button('zoom-in','放大',() => { state.zoom *= 1.25; layoutImage(); }),button('zoom-out','缩小',() => { state.zoom /= 1.25; layoutImage(); }),button('rotate','旋转 90°',() => { state.rotation = (state.rotation + 90) % 360; fitImage(); }),button('fit','适应窗口',fitImage));
     const textTools = element('div','fdpdf-tools');
@@ -225,10 +255,12 @@
     const presentationHost = element('div','fdpdf-presentation');
     const text = element('pre','fdpdf-text'); text.tabIndex = 0;
     const stage = element('div','fdpdf-image-stage');
-    body.append(status,viewer,docx,pdfjsHost,presentationHost,text,stage); dialog.append(header,pdfTools,imageTools,textTools,docxTools,presentationTools,body); root.append(dialog);
+    const windowHint = element('footer','fdpdf-window-footer');
+    body.append(status,viewer,docx,pdfjsHost,presentationHost,text,stage); dialog.append(header,imageTools,textTools,docxTools,presentationTools,body,windowHint); root.append(dialog);
     document.head.append(style); document.body.append(root);
     Object.assign(state,{root,title,originalLink,downloadLink,closeButton,pdfTools,readerSelect,preferenceWarning,pdfjsHost,imageTools,textTools,encoding,wrap,feedback,docxTools,docxWarnings,docxCancel,docxRetry,body,status,viewer,docx,text,stage});
     Object.assign(state,{presentationHost,presentationTools,presentationCancel,presentationRetry});
+    Object.assign(state,{tabButton,tabFeedback,windowController:createDialogWindow({root,dialog,header,title,maximizeButton,resetButton,hint:windowHint})});
     root.addEventListener('click',event => { if (event.target === root) closeDialog(); });
     document.addEventListener('keydown',event => { if (event.key === 'Escape' && !root.hidden) closeDialog(); });
   }
@@ -245,6 +277,7 @@
     state.presentationReader?.dispose(); state.presentationReader = null;
     clearTimeout(state.networkTimer); state.networkTimer = null;
     if (!state.root) return;
+    state.tabButton.hidden = true; state.tabFeedback.textContent = '';
     state.viewer.onload = state.viewer.onerror = null; state.viewer.removeAttribute('src'); state.viewer.hidden = true;
     state.docx.onload = state.docx.onerror = null; state.docx.removeAttribute('srcdoc'); state.docx.hidden = true;
     state.docxWarnings.replaceChildren(); state.docxWarnings.hidden = true;
@@ -321,9 +354,30 @@
   }
   function closeDialog() {
     if (!state.root || state.root.hidden) return;
+    state.windowController.cancel();
     clearPending(); state.root.hidden = true;
     document.body.style.overflow = state.oldOverflow;
     state.trigger?.focus(); state.trigger = null;
+  }
+  function openPdfTab() {
+    if (state.file?.format !== 'pdf' || !state.bytes || !state.objectUrl) return;
+    const tab = window.open('about:blank', '_blank');
+    if (!tab) { state.tabFeedback.textContent = '新标签页被浏览器拦截，请允许本站弹出窗口后重试。'; return; }
+    try {
+      tab.opener = null;
+      const doc = tab.document;
+      doc.title = state.file.name;
+      doc.documentElement.lang = 'zh-CN';
+      doc.body.style.cssText = 'margin:0;height:100vh;overflow:hidden;background:#525659';
+      const frame = doc.createElement('iframe');
+      frame.title = state.file.name; frame.style.cssText = 'display:block;width:100%;height:100%;border:0';
+      // The new document owns its copy and URL, so closing/reloading the course page is safe.
+      frame.src = tab.URL.createObjectURL(new tab.Blob([state.bytes], { type: 'application/pdf' }));
+      doc.body.replaceChildren(frame);
+      state.tabFeedback.textContent = '';
+    } catch {
+      tab.close(); state.tabFeedback.textContent = '无法打开独立预览，请继续使用当前窗口或打开原文件。';
+    }
   }
   function showError(message) {
     state.status.hidden = false; state.status.textContent = `${message}\n可以打开原文件继续查看或下载。`;
@@ -409,6 +463,7 @@
         clearTimeout(timeout);
         state.bytes = bytes;
         setDownload(new Blob([bytes],{type:validated.mime}));
+        state.tabButton.hidden = false;
         mountReader();
       } else if (isPresentation(file.format)) {
         state.bytes = bytes; state.presentationHost.hidden = false;
@@ -485,7 +540,7 @@
     clearPending(); state.file = file; state.trigger = file.link;
     state.title.textContent = file.name; state.originalLink.href = file.url.href; state.originalLink.hidden = false;
     state.status.textContent = '正在读取文件…'; state.status.hidden = false;
-    state.root.hidden = false; document.body.style.overflow = 'hidden'; state.closeButton.focus();
+    state.root.hidden = false; state.windowController.show(); document.body.style.overflow = 'hidden'; state.closeButton.focus();
     state.pdfTools.hidden = file.format !== 'pdf';
     state.docxTools.hidden = file.format !== 'docx';
     state.docxCancel.hidden = file.format !== 'docx';

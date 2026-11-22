@@ -4,7 +4,9 @@
 
 油猴脚本 **1.2.0** 支持图片、文本预览和 PDF 阅读器切换。下方安装链接跟随 `main` 更新；完整变更见 [1.2.0 说明](docs/releases/userscript-v1.2.0.md)。
 
-当前开发分支为 **1.4.0 本地候选版**：油猴和独立扩展同步增加 `.pptx` 与真正的旧版 `.ppt` 静态预览，并保留 DOCX 功能。本轮不自动推送、上架或替换已安装版本，下面的 `main` 安装链接不会随本分支更新。范围和验证边界见 [1.4.0 记录](docs/releases/v1.4.0-candidate.md)。上次记录的 Edge 状态为 2026-10-24 的 1.3.0 In review / 1.1.1 Live，本轮未重新查询商店状态。
+当前开发分支为 **1.4.0 候选版**：油猴和独立扩展同步增加 `.pptx` 与真正的旧版 `.ppt` 静态预览，并保留 DOCX 功能。油猴版还支持拖动、调整弹窗大小、最大化还原和独立 PDF 标签页；阅读器选择已合并到顶部页眉。此分支的更新不会自动替换 `main`、商店版或已安装脚本。范围和验证边界见 [1.4.0 记录](docs/releases/v1.4.0-candidate.md)。上次记录的 Edge 状态为 2026-10-24 的 1.3.0 In review / 1.1.1 Live，本轮未重新查询商店状态。
+
+体验上述功能可[安装开发分支的油猴脚本](https://raw.githubusercontent.com/sjy0630/fudan-elearning-pdf-preview/refs/heads/feature/docx-local-preview/elearning-pdf-preview.user.js)。已装同名脚本时确认更新，然后刷新课程页面；不要重复启用两份脚本。下方常规安装入口仍指向 `main`。
 
 ## 选择版本
 
@@ -56,6 +58,9 @@ DOCX 以连续阅读区显示正文、列表、表格、脚注/尾注和常见�
 ## 使用
 
 - 点击支持的文件名打开弹窗；页面原有下载图标、Ctrl/⌘ 点击等操作仍按网站或浏览器原行为处理。
+- 此分支的油猴弹窗可拖动标题栏移动，拖动四边或四角调整大小；双击标题栏或点击“最大化 / 还原”切换窗口大小，“重置窗口”恢复居中。位置和大小在当前页面内保留，刷新页面后重置。移动和调整窗口不会重新读取文件；PDF.js 会保留当前页码，并在适合宽度时尽量保持阅读位置。
+- PDF 读取完成后，点击“新标签页”可用浏览器自带阅读器独立查看，不会再次请求课件。关掉弹窗或离开课程页面后，该标签页仍可继续查看；它是临时预览页，刷新或关掉它后需重新从课程页面打开。新标签页不沿用弹窗内 PDF.js 的阅读位置。
+- 也可按 Tab 聚焦文件标题，再用方向键移动窗口，Shift + 方向键调整大小。窗口会限制在浏览器可视范围内。
 - 图片支持放大、缩小、旋转 90°和适应窗口；文本支持编码选择、自动换行及复制。剪贴板不可用时会选中文本并提示手动复制。
 - 成功读取、校验并准备好预览后，弹窗显示“下载文件”，保存读取到的原始字节；切换文本编码不会改变下载内容。
 - 点“关闭”、弹窗外部或按 Escape 返回页面。关闭、重开和页面离开时会取消请求并释放临时资源。
@@ -95,9 +100,13 @@ npm run test:userscript
 BROWSER_ENGINE=firefox npm run test:userscript
 npm run test:reader
 BROWSER_ENGINE=firefox npm run test:reader
+npm run test:window
+BROWSER_ENGINE=firefox npm run test:window
 ```
 
 `npm run test:userscript` 默认运行隔离 Chromium 注入检查，`BROWSER_ENGINE=firefox` 选择 Firefox；也可用 `BROWSER_EXECUTABLE` 指定已有的测试浏览器路径。
+
+`test:window` 使用本地合成 PDF，检查移动、调整大小、最大化还原、键盘操作、阅读位置和独立标签页。它不访问真实课件，也不代表已在用户的 Tampermonkey 中安装验收。
 
 `test:reader` 使用有效的普通、中文、加密及损坏合成 PDF 检查阅读器；`test:pdfjs` 单独验证离线运行时和资源清理。准确的版本、结果及真实管理器与注入测试的区别见[阅读器验证记录](docs/READER-VALIDATION.md)。此前 1.1.0 的多格式证据单独保留在[旧版验证记录](docs/VALIDATION.md)，不能视为 1.2.0 全部兼容的证明。
 

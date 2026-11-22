@@ -14,9 +14,9 @@ test('userscript is reproducibly generated with a private embedded registry', as
   assert.match(generated,/@connect\s+\*/);
   assert.deepEqual([...generated.matchAll(/^\/\/ @grant\s+(\S+)/gm)].map(match => match[1]).sort(), ['GM_getValue','GM_setValue','GM_xmlhttpRequest']);
   assert.deepEqual([...generated.matchAll(/^\/\/ @match\s+(\S+)/gm)].map(match => match[1]), ['https://elearning.fudan.edu.cn/*']);
-  for (const name of ['createPdfPreference','createPdfjsReader','createEmbeddedPresentation']) {
+  for (const name of ['createPdfPreference','createPdfjsReader','createEmbeddedPresentation','createDialogWindow']) {
     assert.equal(generated.split(`function ${name}(`).length, 2, `${name} embedded exactly once`);
     assert.doesNotMatch(generated, new RegExp(`(?:window|globalThis)\\.${name}\\s*=`));
   }
-  assert.doesNotMatch(generated,/EMBED_(?:PDF_PREFERENCE|PDFJS_READER|PDFJS_CSS|PRESENTATION_BUNDLE)/);
+  assert.doesNotMatch(generated,/EMBED_(?:PDF_PREFERENCE|PDFJS_READER|PDFJS_CSS|PRESENTATION_BUNDLE|DIALOG_WINDOW)/);
 });

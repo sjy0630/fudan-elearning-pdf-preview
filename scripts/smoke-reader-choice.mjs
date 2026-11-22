@@ -53,6 +53,7 @@ try {
   };
   await load(); await open(); await selector.waitFor();
   assert.equal(await selector.inputValue(), 'native');
+  await page.locator('iframe.fdpdf-viewer').waitFor();
   assert.equal(await page.locator('iframe.fdpdf-viewer').isVisible(), true);
   assert.equal(await page.evaluate(() => workerCount), 0);
   const firstRequestCount = requests;

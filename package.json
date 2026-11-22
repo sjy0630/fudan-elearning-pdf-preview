@@ -15,6 +15,7 @@
     "check:userscript": "node scripts/build-userscript.mjs --check && node --check elearning-pdf-preview.user.js",
     "test": "node --test tests/*.test.cjs",
     "test:userscript": "node scripts/smoke-userscript.mjs",
+    "test:window": "node scripts/smoke-dialog-window.mjs",
     "test:pdfjs": "node scripts/smoke-pdfjs-runtime.mjs",
     "test:reader": "node scripts/smoke-reader-choice.mjs",
     "verify:packages": "node scripts/verify-packages.mjs",
